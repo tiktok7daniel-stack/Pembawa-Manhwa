@@ -73,6 +73,13 @@ jobs:
             mkdir -p ../e2e && adb pull /sdcard/Download/MangaVault/screens ../e2e/ || true
             adb shell ls -lR /sdcard/Download/MangaVault || true
             test ! -f ../e2e-failed
+      - name: Publish screenshots to the e2e-screens tag
+        if: always()
+        run: |
+          [ -d e2e/screens ] || exit 0
+          mkdir /tmp/shots && cp e2e/screens/*.png /tmp/shots/ && cd /tmp/shots
+          git init -q && git add . && git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "e2e screenshots ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:refs/tags/e2e-screens
       - uses: actions/upload-artifact@v4
         if: always()
         with:
