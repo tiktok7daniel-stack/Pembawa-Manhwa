@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.io.IOException
 import java.util.zip.Deflater
@@ -84,7 +85,7 @@ object Downloader {
                 singleZip = newZip(singleTarget.stream)
             }
             for ((idx, ch) in selected.withIndex()) {
-                ensureActive()
+                currentCoroutineContext().ensureActive()
                 DownloadState.chapter(idx) { it.copy(state = CState.ACTIVE) }
                 var target: OutputTarget? = null
                 try {
@@ -102,7 +103,7 @@ object Downloader {
                     var pageNo = 0
                     var good = 0
                     for (chunk in urls.chunked(CHUNK)) {
-                        ensureActive()
+                        currentCoroutineContext().ensureActive()
                         val pages = fetchChunk(chunk, referer, headers)
                         for (p in pages) {
                             pageNo++
