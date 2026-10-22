@@ -15,6 +15,7 @@ import androidx.core.app.ServiceCompat
 import app.mangavault.MainActivity
 import app.mangavault.R
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,7 +25,7 @@ import kotlinx.coroutines.launch
 
 /** Keeps the download alive in the background with an ongoing notification (progress + cancel). */
 class DownloadService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, _ -> })
     private var job: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -54,13 +55,14 @@ class DownloadService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastTime > 700 && s.percent != lastPct) {
                         lastTime = now; lastPct = s.percent
-                        notify(NOTIF_ID, notification(s.title, s.percent, true))
+                        notify(NOTIF_ID, notification(s.title, s.percent, true, "${s.doneChapters}/${s.chapters.size}"))
                     }
                 }
             }
             try {
                 Downloader.run(applicationContext, req)
             } catch (_: CancellationException) {
+            } catch (_: Exception) {
             } finally {
                 watcher.cancel()
                 val s = DownloadState.job.value
@@ -90,14 +92,14 @@ class DownloadService : Service() {
 
     private fun openApp() = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
-    private fun notification(title: String, percent: Int, ongoing: Boolean): Notification {
+    private fun notification(title: String, percent: Int, ongoing: Boolean, chapters: String = ""): Notification {
         val cancel = PendingIntent.getService(
             this, 1, Intent(this, DownloadService::class.java).setAction(ACTION_CANCEL), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)
-            .setContentText("$percent%")
+            .setContentText(if (chapters.isEmpty()) "$percent%" else "$percent%  ·  $chapters")
             .setProgress(100, percent, percent == 0)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)

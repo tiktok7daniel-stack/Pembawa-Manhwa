@@ -5,6 +5,12 @@ import app.mangavault.net.HttpStatusException
 import okhttp3.FormBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.net.URL
 import java.net.URLDecoder
 
@@ -121,22 +127,32 @@ object GenericSource {
         return out.toList()
     }
 
-    /** Follows every page of a paginated chapter list (breadth-first, capped). */
-    private suspend fun crawlListPages(first: Found, firstUrl: String, headers: Map<String, String>): List<Raw> {
+    /** Follows every page of a paginated chapter list: breadth-first, several pages at a time, capped. */
+    private suspend fun crawlListPages(first: Found, firstUrl: String, headers: Map<String, String>): List<Raw> = coroutineScope {
         var list = first.list
         val visited = mutableSetOf(firstUrl.substringBefore('#'))
-        val queue = ArrayDeque(listPages(first.doc, firstUrl))
+        var frontier = listPages(first.doc, firstUrl).filter { visited.add(it) }
+        val gate = Semaphore(6)
         var fetched = 0
-        while (queue.isNotEmpty() && fetched < 60) {
-            val next = queue.removeFirst()
-            if (!visited.add(next)) continue
-            val p = try { Http.text(next, headers) } catch (_: Exception) { continue }
-            fetched++
-            val more = readSeries(p.body, p.url)
-            list = list + more.list
-            listPages(more.doc, firstUrl).forEach { if (it !in visited) queue.addLast(it) }
+        while (frontier.isNotEmpty() && fetched < 60) {
+            val batch = frontier.take(60 - fetched)
+            fetched += batch.size
+            val pages = batch.map { u ->
+                async {
+                    gate.withPermit {
+                        try { Http.text(u, headers).let { readSeries(it.body, it.url) } } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                    }
+                }
+            }.awaitAll()
+            val next = ArrayList<String>()
+            for (f in pages) {
+                if (f == null) continue
+                list = list + f.list
+                listPages(f.doc, firstUrl).forEach { if (visited.add(it)) next.add(it) }
+            }
+            frontier = next
         }
-        return list
+        list
     }
 
     private fun wholeNumber(r: Raw): Int? = r.number?.toDoubleOrNull()?.takeIf { it == Math.floor(it) && it >= 0 }?.toInt()
@@ -173,7 +189,8 @@ object GenericSource {
         val missing = (1 until have.max()).filter { it !in have }
         if (missing.isEmpty() || missing.size > 5000) return list
         val probes = listOf(missing.first(), missing[missing.size / 2], missing.last()).distinct()
-        for (n in probes) if (!exists(best.key.replace("{n}", n.toString()), headers)) return list
+        val found = coroutineScope { probes.map { n -> async { exists(best.key.replace("{n}", n.toString()), headers) } }.awaitAll() }
+        if (found.any { !it }) return list
         return list + missing.map { Raw(best.key.replace("{n}", it.toString()), "", it.toString()) }
     }
 
@@ -208,6 +225,8 @@ object GenericSource {
         // Too little found, blocked, or older chapters still hidden: use the real (WebView) browser, which also
         // clicks "Next" / range tabs and collects every list it sees.
         val current = found
+        // A plain fetch that already returned a real list means chapter pages can be read without the (slower) browser.
+        val plainWorks = current != null && current.list.size >= 2
         if (current == null || current.list.size < 2 || looksIncomplete(current.list)) {
             val r = try {
                 BrowserRenderer.render(url, expand = true, paginate = true)
@@ -237,7 +256,7 @@ object GenericSource {
         val result = found ?: throw SourceException(Err.NO_CHAPTERS)
         if (result.list.isEmpty()) throw SourceException(Err.NO_CHAPTERS)
         return Series(result.title, result.description, result.cover, finish(result.list), sourceName = host(url),
-            session = session, forceBrowser = browser || rendered)
+            session = session, forceBrowser = browser || (rendered && !plainWorks))
     }
 
     private fun pageImages(html: String, url: String): List<String> {

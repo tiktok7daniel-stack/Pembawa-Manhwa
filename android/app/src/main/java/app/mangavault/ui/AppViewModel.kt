@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.mangavault.data.Prefs
+import app.mangavault.download.CState
 import app.mangavault.download.DownloadService
 import app.mangavault.download.DownloadState
 import app.mangavault.download.JobHolder
@@ -110,6 +111,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** Re-runs only the chapters that failed (or everything that did not finish, after an error/cancel). */
+    fun retryFailed() {
+        val s = series ?: return
+        if (isRunning) return
+        val j = DownloadState.job.value ?: return
+        val again = j.chapters.filter { it.state == CState.FAILED || it.state == CState.QUEUED || it.state == CState.ACTIVE }.map { it.chapter }
+        val chosen = again.ifEmpty { j.chapters.map { it.chapter } }
+        JobHolder.pending = JobRequest(s, chosen, j.mode)
+        DownloadState.start(s.title, chosen, j.mode)
+        val app = getApplication<Application>()
+        ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
+        screen = Screen.PROGRESS
+    }
+
+    /** Back to an empty home screen for the next series. */
+    fun newDownload() {
+        screen = Screen.MAIN
+        tab = Tab.HOME
+        url = ""
+        errorKey = null
+    }
+
     fun cancelDownload() {
         val app = getApplication<Application>()
         app.startService(Intent(app, DownloadService::class.java).setAction(DownloadService.ACTION_CANCEL))
@@ -117,7 +140,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun back() {
         when (screen) {
-            Screen.PROGRESS -> screen = if (series != null && !isRunning) Screen.RESULT else Screen.RESULT
+            Screen.PROGRESS -> screen = if (series != null) Screen.RESULT else Screen.MAIN
             Screen.RESULT -> screen = Screen.MAIN
             Screen.MAIN -> Unit
         }

@@ -49,7 +49,7 @@ object Storage {
         if (!dir.exists() && !dir.mkdirs()) throw IOException("Cannot create folder")
         var file = File(dir, name)
         var n = 1
-        while (file.exists()) file = File(dir, name.substringBeforeLast('.') + " ($n++)." + name.substringAfterLast('.', "cbz"))
+        while (file.exists()) file = File(dir, name.substringBeforeLast('.') + " (${n++})." + name.substringAfterLast('.', "cbz"))
         val out = FileOutputStream(file)
         return OutputTarget(
             out,

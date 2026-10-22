@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, ccr-aac45ad3-i45rtq]
+    branches: [main, ccr-aac45ad3-i45rtq, ccr-4e09c2a9-lgd7hd]
     paths: ['android/**', '.github/workflows/android.yml']
   workflow_dispatch:
 

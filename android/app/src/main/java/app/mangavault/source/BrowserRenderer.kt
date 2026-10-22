@@ -104,12 +104,12 @@ object BrowserRenderer {
                 var last = ""
                 for (i in 0 until 80) {
                     val h = web.js(JS_SCROLL) ?: ""
-                    delay(250)
+                    delay(150)
                     val bottom = web.js(JS_BOTTOM) == "true"
                     if (bottom && h == last) break
                     last = h
                 }
-                delay(800)
+                delay(600)
             }
             // Chapter lists split into pages or "1-100" tabs: open each one and keep a copy of what it shows.
             val snapshots = ArrayList<String>()

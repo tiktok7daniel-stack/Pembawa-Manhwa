@@ -15,10 +15,13 @@ object Prefs {
     private val _lang = MutableStateFlow("en")
     private val _theme = MutableStateFlow("dark")
     private val _browser = MutableStateFlow(false)
+    private val _speed = MutableStateFlow("fast")
     private val _history = MutableStateFlow<List<HistoryItem>>(emptyList())
     val lang: StateFlow<String> = _lang
     val theme: StateFlow<String> = _theme
     val browserDefault: StateFlow<Boolean> = _browser
+    /** "balanced" | "fast" | "turbo": how many pages and chapters are fetched at the same time. */
+    val speed: StateFlow<String> = _speed
     val history: StateFlow<List<HistoryItem>> = _history
 
     fun init(c: Context) {
@@ -26,6 +29,7 @@ object Prefs {
         _lang.value = sp.getString("lang", null) ?: if (Locale.getDefault().language == "ar") "ar" else "en"
         _theme.value = sp.getString("theme", "dark") ?: "dark"
         _browser.value = sp.getBoolean("browser", false)
+        _speed.value = sp.getString("speed", "fast") ?: "fast"
         _history.value = try {
             val arr = JSONArray(sp.getString("history", "[]"))
             (0 until arr.length()).map {
@@ -37,10 +41,11 @@ object Prefs {
 
     fun setLang(v: String) { _lang.value = v; sp.edit().putString("lang", v).apply() }
     fun setTheme(v: String) { _theme.value = v; sp.edit().putString("theme", v).apply() }
+    fun setSpeed(v: String) { _speed.value = v; sp.edit().putString("speed", v).apply() }
     fun setBrowser(v: Boolean) { _browser.value = v; sp.edit().putBoolean("browser", v).apply() }
 
     fun addHistory(item: HistoryItem) {
-        val list = (listOf(item) + _history.value).take(50)
+        val list = (listOf(item) + _history.value.filter { it.time != item.time }).take(50)
         _history.value = list
         val arr = JSONArray()
         list.forEach {
@@ -50,4 +55,11 @@ object Prefs {
     }
 
     fun clearHistory() { _history.value = emptyList(); sp.edit().remove("history").apply() }
+
+    /** Parallel page requests and chapters fetched ahead for the current speed setting. */
+    fun concurrency(): Pair<Int, Int> = when (_speed.value) {
+        "balanced" -> 6 to 2
+        "turbo" -> 16 to 4
+        else -> 10 to 3
+    }
 }

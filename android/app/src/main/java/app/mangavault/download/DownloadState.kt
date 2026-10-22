@@ -1,5 +1,6 @@
 package app.mangavault.download
 
+import android.os.SystemClock
 import app.mangavault.source.Chapter
 import app.mangavault.source.Series
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,15 +20,32 @@ data class JobState(
     val doneChapters: Int = 0,
     val error: String? = null,
     val savedPath: String? = null,
+    /** Image bytes received so far. */
+    val bytes: Long = 0,
+    val pagesDone: Int = 0,
+    /** Pages known so far (grows as each chapter's page list is read). */
+    val pagesTotal: Int = 0,
+    /** [SystemClock.elapsedRealtime] at start / end. */
+    val startedAt: Long = 0,
+    val finishedAt: Long = 0,
 ) {
-    val percent: Int
+    /** 0..1 across all chapters; several chapters can be in flight at once. */
+    val fraction: Float
         get() {
-            if (status == JobStatus.DONE) return 100
-            if (chapters.isEmpty()) return 0
-            val active = chapters.firstOrNull { it.state == CState.ACTIVE }
-            val partial = if (active != null && active.total > 0) active.done.toFloat() / active.total else 0f
-            return minOf(99, ((doneChapters + partial) / chapters.size * 100).toInt())
+            if (status == JobStatus.DONE) return 1f
+            if (chapters.isEmpty()) return 0f
+            var sum = 0f
+            for (c in chapters) {
+                sum += when (c.state) {
+                    CState.DONE, CState.PARTIAL, CState.FAILED -> 1f
+                    CState.ACTIVE -> if (c.total > 0) 0.98f * c.done / c.total else 0f
+                    CState.QUEUED -> 0f
+                }
+            }
+            return minOf(0.99f, sum / chapters.size)
         }
+
+    val percent: Int get() = if (status == JobStatus.DONE) 100 else (fraction * 100).toInt()
 }
 
 class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode)
@@ -41,14 +59,30 @@ object DownloadState {
     val job = MutableStateFlow<JobState?>(null)
 
     fun start(title: String, chapters: List<Chapter>, mode: Mode) {
-        job.value = JobState(title, mode, JobStatus.RUNNING, chapters.map { ChapterProgress(it) })
+        job.value = JobState(title, mode, JobStatus.RUNNING, chapters.map { ChapterProgress(it) }, startedAt = SystemClock.elapsedRealtime())
     }
 
     fun chapter(idx: Int, f: (ChapterProgress) -> ChapterProgress) {
         job.update { j ->
-            if (j == null) null else j.copy(chapters = j.chapters.toMutableList().also { it[idx] = f(it[idx]) })
+            if (j == null || idx !in j.chapters.indices) j else j.copy(chapters = j.chapters.toMutableList().also { it[idx] = f(it[idx]) })
+        }
+    }
+
+    /** One page finished (successfully or not) for chapter [idx]. */
+    fun page(idx: Int, bytes: Long, failed: Boolean) {
+        job.update { j ->
+            if (j == null || idx !in j.chapters.indices) j
+            else j.copy(
+                bytes = j.bytes + bytes,
+                pagesDone = j.pagesDone + 1,
+                chapters = j.chapters.toMutableList().also { val c = it[idx]; it[idx] = c.copy(done = c.done + 1, failedPages = c.failedPages + if (failed) 1 else 0) },
+            )
         }
     }
 
     fun update(f: (JobState) -> JobState) { job.update { if (it == null) null else f(it) } }
+
+    fun finish(status: JobStatus, f: (JobState) -> JobState = { it }) {
+        job.update { if (it == null) null else f(it).copy(status = status, finishedAt = SystemClock.elapsedRealtime()) }
+    }
 }

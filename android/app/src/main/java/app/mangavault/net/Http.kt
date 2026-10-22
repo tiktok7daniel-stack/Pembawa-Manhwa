@@ -2,6 +2,7 @@ package app.mangavault.net
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -35,6 +36,9 @@ object Http {
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(MemoryCookies)
+        // Many parallel page requests to the same image host: keep their connections warm.
+        .connectionPool(ConnectionPool(24, 5, TimeUnit.MINUTES))
+        .retryOnConnectionFailure(true)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(40, TimeUnit.SECONDS)
         .followRedirects(true)
