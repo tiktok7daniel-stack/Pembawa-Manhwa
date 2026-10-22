@@ -1,0 +1,21 @@
+{
+  "name": "mangavault",
+  "version": "1.0.0",
+  "description": "Paste a manga/manhwa series link, pick chapters, get a single CBZ. EN/AR.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/e2e.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "cheerio": "^1.0.0",
+    "express": "^5.3.0"
+  }
+}
