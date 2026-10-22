@@ -72,7 +72,33 @@ object GenericSource {
         return Found(doc, title, cover, desc, extractChapters(doc, url))
     }
 
+    /** A pasted chapter link (".../series/chapter-12") is tried as its parent series page first. */
+    private fun seriesCandidates(url: String): List<String> {
+        val u = try { URL(url) } catch (_: Exception) { return listOf(url) }
+        val segs = u.path.trimEnd('/').split('/').filter { it.isNotEmpty() }
+        if (segs.size >= 2 && chHint.containsMatchIn(segs.last())) {
+            return listOf("${u.protocol}://${u.authority}/" + segs.dropLast(1).joinToString("/"), url)
+        }
+        return listOf(url)
+    }
+
     suspend fun getSeries(url: String, browser: Boolean): Series {
+        var last: Exception? = null
+        for (candidate in seriesCandidates(url)) {
+            try {
+                return loadSeries(candidate, browser)
+            } catch (e: SourceException) {
+                if (e.code != Err.NO_CHAPTERS) throw e
+                last = e
+            } catch (e: HttpStatusException) {
+                if (e.code != 404) throw e
+                last = e
+            }
+        }
+        throw last ?: SourceException(Err.NO_CHAPTERS)
+    }
+
+    private suspend fun loadSeries(url: String, browser: Boolean): Series {
         var found: Found? = null
         var session: Session? = null
         var rendered = false

@@ -31,6 +31,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.font.Font
+import app.mangavault.R
 
 val Yellow = Color(0xFFFFC61A)
 val Orange = Color(0xFFFF7A1A)
@@ -47,6 +54,15 @@ private val LightScheme = lightColorScheme(
     onBackground = Color(0xFF15151A), onSurface = Color(0xFF15151A), onSurfaceVariant = Color(0xFF5E5E68),
     primary = Orange, onPrimary = Color.White, secondary = Color(0xFFB88900), outline = Color(0xFFD8D2C2), error = Color(0xFFC0392B),
 )
+
+val Display = FontFamily(Font(R.font.archivo_black))
+val DisplayAr = FontFamily(Font(R.font.tajawal_extrabold, FontWeight.ExtraBold))
+val Mono = FontFamily(Font(R.font.space_mono), Font(R.font.space_mono_bold, FontWeight.Bold))
+val BodyAr = FontFamily(Font(R.font.tajawal_medium, FontWeight.Medium))
+
+/** Heavy display face for headings; Arabic gets Tajawal since Archivo has no Arabic glyphs. */
+@Composable
+fun displayFont(): FontFamily = if (LocalLang.current == "ar") DisplayAr else Display
 
 @Composable
 fun MangaVaultTheme(dark: Boolean, content: @Composable () -> Unit) {
@@ -76,7 +92,7 @@ fun BoxCard(modifier: Modifier = Modifier, border: Color = MaterialTheme.colorSc
 }
 
 @Composable
-fun BrandButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, loading: Boolean = false, enabled: Boolean = true) {
+fun BrandButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, loading: Boolean = false, enabled: Boolean = true, search: Boolean = false) {
     Box(
         modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(8.dp))
             .background(if (enabled) BrandBrush else Brush.horizontalGradient(listOf(Color(0xFF55555C), Color(0xFF55555C))))
@@ -87,8 +103,11 @@ fun BrandButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
             if (loading) {
                 CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.5.dp)
                 Box(Modifier.size(10.dp))
+            } else if (search) {
+                Icon(Icons.Filled.Search, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                Box(Modifier.size(10.dp))
             }
-            Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
         }
     }
 }
@@ -123,5 +142,29 @@ fun Logo() {
         )
         Box(Modifier.size(10.dp))
         Text("MangaVault", color = Yellow, fontWeight = FontWeight.Black, fontSize = 22.sp, fontFamily = FontFamily.SansSerif)
+    }
+}
+
+/** Chain-link glyph drawn in code (no icon pack needed). */
+@Composable
+fun LinkGlyph(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        rotate(-45f) {
+            val stroke = Stroke(width = w * 0.1f)
+            drawRoundRect(color, Offset(w * 0.02f, h * 0.33f), androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.34f),
+                androidx.compose.ui.geometry.CornerRadius(h * 0.17f), style = stroke)
+            drawRoundRect(color, Offset(w * 0.42f, h * 0.33f), androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.34f),
+                androidx.compose.ui.geometry.CornerRadius(h * 0.17f), style = stroke)
+        }
+    }
+}
+
+/** Small monospace label in a dark tab, like "SECURITY CHECK" / "01 · PASTE". */
+@Composable
+fun Tag(text: String, bg: Color = MaterialTheme.colorScheme.surfaceVariant, fg: Color = MaterialTheme.colorScheme.onSurface) {
+    Box(Modifier.background(bg).padding(horizontal = 10.dp, vertical = 5.dp)) {
+        Text(text, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 2.sp, color = fg)
     }
 }

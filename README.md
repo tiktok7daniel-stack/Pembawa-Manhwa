@@ -39,3 +39,11 @@ Browser mode needs Chromium: the Docker image includes it; locally set `CHROMIUM
   Residual risk: DNS rebinding between check and fetch; run it in a network without access to internal services.
 - Files live in the OS temp dir and are deleted ~30 min after creation.
 - MangaVault hosts no content. Download only from sources that permit it, and support creators by buying official releases.
+
+## Android app (`android/`)
+
+Standalone app (Kotlin + Jetpack Compose) — no server. Built by `.github/workflows/android.yml` and published at the
+`apk-latest` release. Sites behind a Cloudflare/CAPTCHA check can be used after the user passes the check once in the
+in-app browser ("Verify in browser"); the app does not bypass such checks or descramble protected images.
+
+Bundled fonts (SIL Open Font License): Archivo Black, Space Mono, Tajawal.

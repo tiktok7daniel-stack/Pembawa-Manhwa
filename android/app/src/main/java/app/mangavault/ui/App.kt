@@ -40,8 +40,8 @@ fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit) {
     ) {
         MangaVaultTheme(dark) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).dotted().systemBarsPadding()) {
-                BackHandler(enabled = vm.screen != Screen.MAIN || vm.tab != Tab.HOME) {
-                    if (vm.screen != Screen.MAIN) vm.back() else vm.tab = Tab.HOME
+                BackHandler(enabled = vm.loading || vm.showVerify || vm.screen != Screen.MAIN || vm.tab != Tab.HOME) {
+                    if (vm.showVerify) vm.showVerify = false else if (vm.loading) vm.cancelParse() else if (vm.screen != Screen.MAIN) vm.back() else vm.tab = Tab.HOME
                 }
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f)) {
@@ -57,6 +57,9 @@ fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit) {
                     }
                     if (vm.screen == Screen.MAIN) Dock(vm)
                 }
+                if (vm.loading) FindingSheet(vm.url) { vm.cancelParse() }
+                val verify = vm.verifyUrl
+                if (vm.showVerify && verify != null) VerifySheet(verify, { vm.verified() }, { vm.showVerify = false })
             }
         }
     }

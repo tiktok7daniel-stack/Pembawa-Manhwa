@@ -41,6 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -80,113 +83,274 @@ fun HomeScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val lang = LocalLang.current
     val theme by Prefs.theme.collectAsState()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 12.dp)) {
+    val center = androidx.compose.ui.text.style.TextAlign.Center
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Logo()
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip(if (lang == "ar") "EN" else "ع", { Prefs.setLang(if (lang == "ar") "en" else "ar") })
-                    Chip(if (theme == "light") "☾" else "☀", { Prefs.setTheme(if (theme == "light") "dark" else "light") })
-                }
-            }
-            Spacer(Modifier.height(28.dp))
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                BoxCard(border = MaterialTheme.colorScheme.outline) {
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(9.dp).background(Yellow))
-                        Spacer(Modifier.width(10.dp))
-                        Text(t("badge"), fontFamily = FontFamily.Monospace, fontSize = 12.sp, letterSpacing = 2.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.padding(horizontal = 18.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Logo()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip(if (lang == "ar") "EN" else "ع", { Prefs.setLang(if (lang == "ar") "en" else "ar") })
+                        Chip(if (theme == "light") "☾" else "☀", { Prefs.setTheme(if (theme == "light") "dark" else "light") })
                     }
                 }
-            }
-            Spacer(Modifier.height(22.dp))
-            Text(t("h1a"), Modifier.fillMaxWidth(), fontSize = 44.sp, lineHeight = 48.sp, fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.onBackground, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Text(
-                buildAnnotatedString { withStyle(SpanStyle(brush = Brush.horizontalGradient(listOf(Yellow, Orange)))) { append(t("h1b")) } },
-                Modifier.fillMaxWidth(), fontSize = 46.sp, lineHeight = 50.sp, fontWeight = FontWeight.Black,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-            Spacer(Modifier.height(14.dp))
-            Muted(t("lead"), Modifier.fillMaxWidth(), 16)
-            Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(30.dp))
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    BoxCard {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(10.dp).rotate(45f).background(Yellow))
+                            Spacer(Modifier.width(12.dp))
+                            Text(t("badge"), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.5.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                Text(t("h1a"), Modifier.fillMaxWidth(), fontFamily = displayFont(), fontSize = 44.sp, lineHeight = 50.sp,
+                    color = MaterialTheme.colorScheme.onBackground, textAlign = center)
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(brush = Brush.verticalGradient(listOf(Yellow, Orange)), shadow = Shadow(Red, Offset(7f, 7f), 0f))) { append(t("h1b")) }
+                    },
+                    Modifier.fillMaxWidth(), fontFamily = displayFont(), fontSize = 50.sp, lineHeight = 58.sp, textAlign = center,
+                )
+                Spacer(Modifier.height(16.dp))
+                val hl = SpanStyle(color = Yellow, background = Yellow.copy(alpha = 0.14f), fontWeight = FontWeight.Bold)
+                Text(
+                    buildAnnotatedString {
+                        append(t("lead_a")); withStyle(hl) { append(t("lead_hl1")) }
+                        append(t("lead_b")); withStyle(hl) { append(t("lead_hl2")) }
+                        append(t("lead_c"))
+                    },
+                    Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 18.sp, lineHeight = 28.sp, textAlign = center,
+                )
+                Spacer(Modifier.height(24.dp))
 
-            BoxCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.background)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("🔗", fontSize = 18.sp)
-                        Spacer(Modifier.width(10.dp))
-                        Box(Modifier.weight(1f).padding(vertical = 16.dp)) {
-                            if (vm.url.isEmpty()) Muted(t("ph_url"), size = 16)
-                            BasicTextField(
-                                vm.url, { vm.url = it }, singleLine = true,
-                                textStyle = TextStyle(color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textDirection = TextDirection.Ltr),
-                                cursorBrush = SolidColor(Orange),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = androidx.compose.ui.text.input.ImeAction.Go),
-                                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onGo = { vm.parse() }),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                BoxCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.background)
+                                .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(start = 16.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LinkGlyph(MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(14.dp))
+                            Box(Modifier.weight(1f).padding(vertical = 18.dp)) {
+                                if (vm.url.isEmpty()) Muted(t("ph_url"), size = 16)
+                                BasicTextField(
+                                    vm.url, { vm.url = it }, singleLine = true,
+                                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textDirection = TextDirection.Ltr),
+                                    cursorBrush = SolidColor(Orange),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = androidx.compose.ui.text.input.ImeAction.Go),
+                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onGo = { vm.parse() }),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Chip(t("paste"), {
+                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val txt = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()
+                                if (!txt.isNullOrBlank()) vm.url = Regex("https?://\\S+").find(txt)?.value ?: txt.trim()
+                            })
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Chip(t("paste"), {
-                            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val txt = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()
-                            if (!txt.isNullOrBlank()) vm.url = txt.trim()
-                        })
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().clickable { vm.browserMode = !vm.browserMode }.padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(vm.browserMode, { vm.browserMode = it }, colors = CheckboxDefaults.colors(checkedColor = Orange))
-                        Column {
-                            Text(t("browser"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
-                            Muted(t("browser_d"), size = 12)
+                        BrandButton(t("parse"), { vm.parse() }, loading = vm.loading, enabled = vm.url.isNotBlank(), search = true)
+                        Row(
+                            Modifier.fillMaxWidth().clickable { vm.browserMode = !vm.browserMode },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(vm.browserMode, { vm.browserMode = it }, colors = CheckboxDefaults.colors(checkedColor = Orange))
+                            Column {
+                                Text(t("browser"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Muted(t("browser_d"), size = 12)
+                            }
                         }
                     }
-                    BrandButton(if (vm.loading) t("parsing") else t("parse"), { vm.parse() }, loading = vm.loading, enabled = vm.url.isNotBlank())
                 }
-            }
-            vm.errorKey?.let { key ->
-                Spacer(Modifier.height(12.dp))
-                BoxCard(Modifier.fillMaxWidth(), border = MaterialTheme.colorScheme.error) {
-                    Text(t(key) + if (vm.errorDetail.isNotEmpty()) " (${vm.errorDetail})" else "", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                vm.errorKey?.let { key ->
+                    Spacer(Modifier.height(12.dp))
+                    BoxCard(Modifier.fillMaxWidth(), border = MaterialTheme.colorScheme.error) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.Top) {
+                                Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.error), contentAlignment = Alignment.Center) {
+                                    Text("✕", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Text(t(key) + if (vm.errorDetail.isNotEmpty()) " (${vm.errorDetail})" else "", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, lineHeight = 20.sp)
+                            }
+                            if (vm.verifyUrl != null) BrandButton(t("verify_btn"), { vm.showVerify = true })
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Muted(t("disclaimer"), Modifier.fillMaxWidth(), 13)
+                Spacer(Modifier.height(20.dp))
+                BoxCard(Modifier.fillMaxWidth(), border = Yellow.copy(alpha = 0.6f)) {
+                    Column(Modifier.background(Yellow.copy(alpha = 0.07f)).padding(16.dp)) {
+                        Tag(t("promo_t"), Yellow, androidx.compose.ui.graphics.Color.Black)
+                        Spacer(Modifier.height(10.dp))
+                        Text(t("promo_d"), color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, lineHeight = 24.sp)
+                    }
+                }
+                Spacer(Modifier.height(32.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(t("how"), fontFamily = Mono, fontWeight = FontWeight.Bold, letterSpacing = 3.sp, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(t("swipe"), fontFamily = Mono, letterSpacing = 2.sp, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.height(14.dp))
-            Muted(t("disclaimer"), Modifier.fillMaxWidth(), 13)
-            Spacer(Modifier.height(18.dp))
-            BoxCard(Modifier.fillMaxWidth(), border = Yellow.copy(alpha = 0.55f)) {
-                Column(Modifier.padding(14.dp)) {
-                    Box(Modifier.background(Yellow).padding(horizontal = 10.dp, vertical = 3.dp)) {
-                        Text(t("promo_t"), color = androidx.compose.ui.graphics.Color.Black, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(t("promo_d"), color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, lineHeight = 22.sp)
-                }
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 22.dp, vertical = 10.dp),
+            ) {
+                item { StepCard("01", t("s1_t"), -1.5f) { StepPaste() } }
+                item { StepCard("02", t("s2_t"), 1.2f) { StepPick() } }
+                item { StepCard("03", t("s3_t"), -1f) { StepRead() } }
             }
             Spacer(Modifier.height(30.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(t("how"), fontFamily = FontFamily.Monospace, letterSpacing = 3.sp, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(t("swipe"), fontFamily = FontFamily.Monospace, letterSpacing = 2.sp, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun StepCard(no: String, label: String, tilt: Float, content: @Composable () -> Unit) {
+    BoxCard(Modifier.width(268.dp).height(250.dp).rotate(tilt)) {
+        Column {
+            Tag("$no · $label")
+            Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) { content() }
+        }
+    }
+}
+
+@Composable
+private fun StepPaste() {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Muted(t("s1_d"), size = 13)
+        Box(Modifier.fillMaxWidth().border(2.dp, Yellow).padding(horizontal = 10.dp, vertical = 9.dp)) {
+            Text(t("demo_url"), fontFamily = Mono, fontSize = 12.sp, color = Yellow, maxLines = 1)
+        }
+        Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(5.dp)).background(BrandBrush), contentAlignment = Alignment.Center) {
+            Text(t("parse"), color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun StepPick() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            buildAnnotatedString { append("Ch. 1 "); withStyle(SpanStyle(color = Orange)) { append("→") }; append(" 10") },
+            fontFamily = Display, fontSize = 30.sp, color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(Modifier.fillMaxWidth().height(40.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+            repeat(22) { i ->
+                Box(Modifier.weight(1f).fillMaxSize().background(if (i < 10) Yellow else MaterialTheme.colorScheme.outline))
             }
-            Spacer(Modifier.height(12.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(listOf("1" to "s1", "2" to "s2", "3" to "s3")) { (n, k) ->
-                    BoxCard(Modifier.width(250.dp)) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("0$n · ${t(k + "_t")}", fontFamily = FontFamily.Monospace, color = Yellow, fontSize = 13.sp, letterSpacing = 2.sp)
-                            Spacer(Modifier.height(8.dp))
-                            Text(t(k + "_d"), color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, lineHeight = 22.sp)
-                        }
-                    }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Tag(t("first10"), Yellow, androidx.compose.ui.graphics.Color.Black)
+            Tag(t("last10"))
+        }
+    }
+}
+
+@Composable
+private fun StepRead() {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("CBZ", fontFamily = Display, fontSize = 44.sp, style = TextStyle(brush = Brush.verticalGradient(listOf(Yellow, Orange))))
+        Text("✓ " + t("demo_saved"), color = androidx.compose.ui.graphics.Color(0xFF4ADE80), fontFamily = Mono, fontSize = 11.sp)
+        Muted(t("s3_d"), size = 13)
+    }
+}
+
+/** Bottom sheet shown while a link is being analysed. */
+@Composable
+fun FindingSheet(url: String, onCancel: () -> Unit) {
+    var step by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) { kotlinx.coroutines.delay(4000); if (step < 2) step++ }
+    }
+    SheetFrame(t("searching"), t("find_t"), onCancel) {
+        Muted(t(listOf("find_1", "find_2", "find_3")[step]), size = 15)
+        Spacer(Modifier.height(14.dp))
+        UrlBox(url)
+        Spacer(Modifier.height(16.dp))
+        LinearProgressIndicator(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)), color = Yellow, trackColor = MaterialTheme.colorScheme.surfaceVariant)
+        Spacer(Modifier.height(10.dp))
+    }
+}
+
+/** Visible browser where the user passes a site's human check themselves; cookies are shared with the downloader. */
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun VerifySheet(url: String, onDone: () -> Unit, onClose: () -> Unit) {
+    SheetFrame(t("verify_tag"), t("verify_t"), onClose, fill = true) {
+        Muted(t("verify_d"), size = 14)
+        Spacer(Modifier.height(10.dp))
+        UrlBox(url)
+        Spacer(Modifier.height(10.dp))
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { c ->
+                android.webkit.WebView(c).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.userAgentString = app.mangavault.source.BROWSER_UA
+                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = android.webkit.WebViewClient()
+                    loadUrl(url)
                 }
+            },
+            onRelease = { it.destroy() },
+            modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(8.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
+        )
+        Spacer(Modifier.height(12.dp))
+        BrandButton(t("verify_done"), {
+            android.webkit.CookieManager.getInstance().flush()
+            onDone()
+        })
+    }
+}
+
+@Composable
+private fun UrlBox(url: String) {
+    Row(
+        Modifier.fillMaxWidth().border(1.5.dp, MaterialTheme.colorScheme.outline).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(Yellow))
+        Spacer(Modifier.width(12.dp))
+        Text(url, fontFamily = Mono, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = TextStyle(textDirection = TextDirection.Ltr))
+    }
+}
+
+@Composable
+private fun SheetFrame(tag: String, title: String, onClose: () -> Unit, fill: Boolean = false, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f))
+            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            (if (fill) Modifier.fillMaxSize().padding(top = 40.dp) else Modifier.fillMaxWidth())
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)).background(MaterialTheme.colorScheme.surface),
+        ) {
+            Box(Modifier.fillMaxWidth().height(4.dp).background(Brush.horizontalGradient(listOf(Red, Orange, Yellow))))
+            Column(Modifier.padding(horizontal = 20.dp).padding(top = 10.dp, bottom = 20.dp).let { if (fill) it.weight(1f) else it }) {
+                Box(Modifier.align(Alignment.CenterHorizontally).width(44.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.outline))
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Tag(tag)
+                    Box(
+                        Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            .clickable(onClick = onClose),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("✕", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface) }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(title, fontFamily = displayFont(), fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(8.dp))
+                content()
             }
-            Spacer(Modifier.height(30.dp))
         }
     }
 }
@@ -233,6 +397,8 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip(t("all"), { vm.selectAll() })
+                    Chip(t("first10"), { vm.selectFirst(10) })
+                    Chip(t("last10"), { vm.selectLast(10) })
                     Chip(t("none"), { vm.selectNone() })
                 }
                 Spacer(Modifier.height(8.dp))

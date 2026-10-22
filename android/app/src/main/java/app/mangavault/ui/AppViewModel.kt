@@ -21,6 +21,7 @@ import app.mangavault.source.Series
 import app.mangavault.source.SourceException
 import app.mangavault.source.Sources
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 enum class Screen { MAIN, RESULT, PROGRESS }
@@ -37,12 +38,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var mode by mutableStateOf(Mode.SINGLE)
     var screen by mutableStateOf(Screen.MAIN)
     var tab by mutableStateOf(Tab.HOME)
+    var verifyUrl by mutableStateOf<String?>(null)
+    var showVerify by mutableStateOf(false)
+    private var parseJob: Job? = null
 
     fun parse() {
         if (loading) return
         errorKey = null
+        verifyUrl = null
         loading = true
-        viewModelScope.launch {
+        parseJob = viewModelScope.launch {
             try {
                 val s = Sources.load(url, Prefs.lang.value, browserMode || Prefs.browserDefault.value)
                 series = s
@@ -51,6 +56,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: SourceException) {
                 errorKey = "err_${e.code.name}"
                 errorDetail = if (e.code == Err.HTTP) e.detail else ""
+                if (e.code == Err.BLOCKED) verifyUrl = e.detail.ifBlank { url }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -60,6 +66,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    fun cancelParse() { parseJob?.cancel(); loading = false }
+
+    /** Called after the user passed the site's check in the visible browser. */
+    fun verified() {
+        showVerify = false
+        browserMode = true
+        parse()
+    }
+
+    fun selectFirst(n: Int) { selected = series?.chapters?.take(n)?.map { it.id }?.toSet() ?: emptySet() }
+    fun selectLast(n: Int) { selected = series?.chapters?.takeLast(n)?.map { it.id }?.toSet() ?: emptySet() }
 
     fun toggle(id: String) { selected = if (id in selected) selected - id else selected + id }
     fun selectAll() { selected = series?.chapters?.map { it.id }?.toSet() ?: emptySet() }

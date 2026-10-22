@@ -13,7 +13,15 @@ object Strings {
 
     private val en = mapOf(
         "badge" to "MANGA DOWNLOADER · CBZ", "h1a" to "Download Manga", "h1b" to "in Seconds",
-        "lead" to "Paste a series link, choose your chapters, and get one clean CBZ file for smooth, ad-free offline reading.",
+        "lead_a" to "Paste a ", "lead_hl1" to "series link", "lead_b" to ", pick the chapters you want, and get clean ",
+        "lead_hl2" to "CBZ files", "lead_c" to " to read offline — no ads.",
+        "searching" to "SEARCHING", "find_t" to "Finding your chapters", "find_1" to "Opening the page…", "find_2" to "Reading the chapter list…",
+        "find_3" to "Still working — big series take longer…",
+        "verify_tag" to "SECURITY CHECK", "verify_t" to "One quick check", "verify_d" to "This site asks visitors to prove they're human. Complete the check below, then tap Continue.",
+        "verify_btn" to "Verify in browser", "verify_done" to "Continue",
+        "err_BLOCKED" to "This site shows a human-verification check (Cloudflare / CAPTCHA). Pass it once in the browser and try again.",
+        "first10" to "First 10", "last10" to "Last 10",
+        "demo_url" to "mangasite.com/series/…", "demo_saved" to "Saved to Downloads/MangaVault",
         "ph_url" to "Paste your manga or manhwa URL", "paste" to "Paste", "parse" to "Parse & Download", "parsing" to "Reading the page…",
         "browser" to "Browser mode", "browser_d" to "slower — for sites that need JavaScript",
         "disclaimer" to "MangaVault does not host any content. You are solely responsible for downloading only from sources that permit it.",
@@ -45,7 +53,15 @@ object Strings {
 
     private val ar = mapOf(
         "badge" to "محمّل المانجا · CBZ", "h1a" to "حمّل المانجا", "h1b" to "في ثوانٍ",
-        "lead" to "الصق رابط المانجا، اختر الفصول، واحصل على ملف CBZ واحد نظيف للقراءة بدون إنترنت وبدون إعلانات.",
+        "lead_a" to "الصق ", "lead_hl1" to "رابط المانجا", "lead_b" to "، اختر الفصول التي تريدها، واحصل على ",
+        "lead_hl2" to "ملفات CBZ", "lead_c" to " نظيفة للقراءة بدون إنترنت — بدون إعلانات.",
+        "searching" to "جاري البحث", "find_t" to "نبحث عن فصولك", "find_1" to "جاري فتح الصفحة…", "find_2" to "جاري قراءة قائمة الفصول…",
+        "find_3" to "ما زلنا نعمل — المانجا الطويلة تأخذ وقتاً أكثر…",
+        "verify_tag" to "فحص أمني", "verify_t" to "فحص سريع", "verify_d" to "هذا الموقع يطلب التأكد أنك إنسان. أكمل الفحص بالأسفل ثم اضغط متابعة.",
+        "verify_btn" to "التحقق في المتصفح", "verify_done" to "متابعة",
+        "err_BLOCKED" to "هذا الموقع يعرض فحص تحقق بشري (Cloudflare / CAPTCHA). أكمله مرة واحدة في المتصفح ثم حاول مرة أخرى.",
+        "first10" to "أول 10", "last10" to "آخر 10",
+        "demo_url" to "mangasite.com/series/…", "demo_saved" to "محفوظ في Downloads/MangaVault",
         "ph_url" to "الصق رابط المانجا أو المانهوا", "paste" to "لصق", "parse" to "تحليل وتحميل", "parsing" to "جاري قراءة الصفحة…",
         "browser" to "وضع المتصفح", "browser_d" to "أبطأ — للمواقع التي تحتاج JavaScript",
         "disclaimer" to "MangaVault لا يستضيف أي محتوى. أنت المسؤول وحدك عن التحميل من المصادر التي تسمح بذلك فقط.",

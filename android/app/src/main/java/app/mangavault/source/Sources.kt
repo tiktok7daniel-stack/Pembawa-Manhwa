@@ -5,9 +5,12 @@ import java.io.IOException
 import java.net.URL
 
 object Sources {
+    /** Accepts a bare link or any shared text that contains one ("Read X at https://..."). */
     fun normalize(raw: String): String {
-        var s = raw.trim()
-        if (s.isEmpty()) throw SourceException(Err.BAD_URL)
+        val text = raw.trim()
+        val found = Regex("https?://[^\\s<>\"']+", RegexOption.IGNORE_CASE).find(text)?.value
+        var s = (found ?: text.takeIf { !it.contains(' ') && it.contains('.') } ?: throw SourceException(Err.BAD_URL))
+            .trimEnd('.', ',', ')', ']', '!', '?', '"', '\'')
         if (!s.contains("://")) s = "https://$s"
         val u = try { URL(s) } catch (_: Exception) { throw SourceException(Err.BAD_URL) }
         if (u.protocol != "http" && u.protocol != "https" || u.host.isNullOrBlank() || !u.host.contains('.')) throw SourceException(Err.BAD_URL)

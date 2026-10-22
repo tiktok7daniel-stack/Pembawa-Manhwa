@@ -15,6 +15,6 @@ data class Series(
     val forceBrowser: Boolean = false,
 )
 
-enum class Err { BAD_URL, NO_CHAPTERS, NO_PAGES, NETWORK, HTTP, BROWSER }
+enum class Err { BAD_URL, NO_CHAPTERS, NO_PAGES, NETWORK, HTTP, BROWSER, BLOCKED }
 
 class SourceException(val code: Err, val detail: String = "") : Exception("$code $detail")

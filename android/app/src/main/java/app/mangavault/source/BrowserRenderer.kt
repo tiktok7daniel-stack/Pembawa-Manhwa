@@ -26,6 +26,9 @@ object BrowserHost {
     @Volatile var container: FrameLayout? = null
 }
 
+/** Same UA as the hidden renderer, so a clearance cookie earned in the visible browser stays valid. */
+const val BROWSER_UA = Http.UA
+
 class RenderedImage(val src: String, val w: Int, val h: Int, val skip: Boolean)
 class RenderResult(val html: String, val url: String, val images: List<RenderedImage>, val cookie: String)
 
@@ -79,6 +82,8 @@ object BrowserRenderer {
             for (i in 0 until 15) { // wait out simple "checking your browser" screens
                 if (challenge.containsMatchIn(web.js("document.title") ?: "")) delay(1000) else break
             }
+            // Still a human-verification page: the user has to pass it once in the visible browser.
+            if (challenge.containsMatchIn(web.js("document.title") ?: "")) throw SourceException(Err.BLOCKED, url)
             if (expand) {
                 for (i in 0 until 6) {
                     if (web.js(JS_EXPAND) != "y") break
