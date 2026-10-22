@@ -47,6 +47,7 @@ class EndToEndTest {
         return ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
     }
 
+    private val throttled = java.util.concurrent.atomic.AtomicInteger()
     private val page = png(400, 600, Color.rgb(120, 90, 200))
     private val logo = png(64, 64, Color.RED)
 
@@ -62,6 +63,17 @@ class EndToEndTest {
                     val n = it.groupValues[1].toInt()
                     if (n in 1..6) return html("<div class=\"reading-content\">" + (1..3).joinToString("") { p -> "<img data-src=\"/img/$n-$p.png\">" } + "</div>")
                 }
+                Regex("^/hot/demo/chapter-(\\d+)/$").find(path)?.let {
+                    val n = it.groupValues[1].toInt()
+                    if (n in 1..4) return html("<div class=\"reading-content\">" + (1..5).joinToString("") { p -> "<img src=\"/himg/$n-$p.png\">" } + "</div>")
+                }
+                if (path.startsWith("/himg/")) {
+                    // Hotlink protection: only the chapter page is an accepted Referer, and the host throttles now and then.
+                    val ref = request.getHeader("Referer") ?: ""
+                    if (!ref.contains("/hot/demo/chapter-")) return MockResponse().setResponseCode(403)
+                    if (throttled.incrementAndGet() % 4 == 0) return MockResponse().setResponseCode(429).setHeader("Retry-After", "1")
+                    return MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(page))
+                }
                 Regex("^/js/read/(\\d)$").find(path)?.let {
                     // Pages exist only after JavaScript runs.
                     return html("<img src=\"/logo.png\"><div id=\"r\"></div><script>setTimeout(function(){for(var p=1;p<=3;p++){var i=new Image();" +
@@ -69,6 +81,7 @@ class EndToEndTest {
                 }
                 return when {
                     // Only the three newest chapters are listed; 1..6 exist.
+                    path == "/hot/demo" -> html((4 downTo 1).joinToString("") { "<a href=\"/hot/demo/chapter-$it/\">Chapter $it</a>" })
                     path == "/manga/demo" -> html((6 downTo 4).joinToString("") { "<a href=\"/manga/demo/chapter-$it/\">Chapter $it</a>" })
                     // Chapter list built by JavaScript.
                     path == "/js/series" -> html("<div id=\"l\"></div><script>setTimeout(function(){document.getElementById('l').innerHTML=" +
@@ -119,6 +132,17 @@ class EndToEndTest {
         val names = zipNames(Prefs.history.value.first().uri!!)
         assertEquals(18, names.count { it.endsWith(".png") })
         assertTrue(names.contains("Ch_001_p001.png") && names.contains("Ch_006_p003.png") && names.contains("ComicInfo.xml"))
+    }
+
+    @Test
+    fun survivesHotlinkProtectionAndThrottling() = runBlocking {
+        val series = Sources.load(server.url("/hot/demo").toString(), "en", false)
+        assertEquals(listOf("1", "2", "3", "4"), series.chapters.map { it.number })
+        Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SINGLE))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        assertTrue(job.chapters.all { it.state == app.mangavault.download.CState.DONE })
+        assertEquals(20, zipNames(Prefs.history.value.first().uri!!).count { it.endsWith(".png") })
     }
 
     @Test

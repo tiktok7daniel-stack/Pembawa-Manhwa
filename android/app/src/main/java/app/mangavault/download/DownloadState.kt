@@ -10,7 +10,11 @@ enum class Mode { SINGLE, PER_CHAPTER }
 enum class CState { QUEUED, ACTIVE, DONE, PARTIAL, FAILED }
 enum class JobStatus { RUNNING, DONE, ERROR, CANCELLED }
 
-data class ChapterProgress(val chapter: Chapter, val state: CState = CState.QUEUED, val done: Int = 0, val total: Int = 0, val failedPages: Int = 0)
+data class ChapterProgress(
+    val chapter: Chapter, val state: CState = CState.QUEUED, val done: Int = 0, val total: Int = 0, val failedPages: Int = 0,
+    /** Short reason shown under a failed chapter, e.g. "HTTP 403". */
+    val error: String? = null,
+)
 
 data class JobState(
     val title: String,

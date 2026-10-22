@@ -13,7 +13,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class HttpStatusException(val code: Int) : IOException("HTTP $code")
+/** [retryAfterMs] comes from a 429/503 "Retry-After" header (0 when absent). */
+class HttpStatusException(val code: Int, val retryAfterMs: Long = 0) : IOException("HTTP $code")
+
+private fun retryAfter(r: okhttp3.Response): Long = r.header("Retry-After")?.trim()?.toLongOrNull()?.coerceIn(0, 30)?.times(1000) ?: 0
 
 class TextResult(val body: String, val url: String)
 class BytesResult(val bytes: ByteArray, val contentType: String)
@@ -55,7 +58,7 @@ object Http {
         withContext(Dispatchers.IO) {
             val h = mapOf("Accept" to "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8", "Accept-Language" to "en-US,en;q=0.9,ar;q=0.8") + headers
             client.newCall(request(url, h, method, body)).execute().use { r ->
-                if (!r.isSuccessful) throw HttpStatusException(r.code)
+                if (!r.isSuccessful) throw HttpStatusException(r.code, retryAfter(r))
                 TextResult(r.body?.string() ?: "", r.request.url.toString())
             }
         }
@@ -63,7 +66,7 @@ object Http {
     suspend fun bytes(url: String, headers: Map<String, String> = emptyMap()): BytesResult =
         withContext(Dispatchers.IO) {
             client.newCall(request(url, headers, "GET", null)).execute().use { r ->
-                if (!r.isSuccessful) throw HttpStatusException(r.code)
+                if (!r.isSuccessful) throw HttpStatusException(r.code, retryAfter(r))
                 BytesResult(r.body?.bytes() ?: ByteArray(0), r.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase() ?: "")
             }
         }

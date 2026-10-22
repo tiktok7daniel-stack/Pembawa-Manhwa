@@ -149,6 +149,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
 fun chapterLabel(c: Chapter, word: String): String {
     val n = c.number ?: return c.title.ifBlank { "—" }
-    if (c.title.isNotBlank() && Regex("(^|[^\\d.])" + Regex.escape(n) + "($|[^\\d])").containsMatchIn(c.title)) return c.title
+    if (c.title.isNotBlank() && Regex("(?<!\\d\\.)(?<!\\d)" + Regex.escape(n) + "(?!\\d)").containsMatchIn(c.title)) return c.title
     return "$word $n" + if (c.title.isNotBlank()) " · ${c.title}" else ""
 }

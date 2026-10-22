@@ -34,10 +34,13 @@ object Sources {
         }
     }
 
-    suspend fun pages(series: Series, chapter: Chapter): List<String> = mapErrors {
+    /** [browser] = read the chapter in the real browser engine (slower, but sees exactly what a reader sees). */
+    suspend fun pages(series: Series, chapter: Chapter, browser: Boolean = series.forceBrowser): List<String> = mapErrors {
         if (series.sourceName == "MangaDex") MangaDexSource.getPages(chapter)
-        else GenericSource.getPages(chapter, series.session, series.forceBrowser)
+        else GenericSource.getPages(chapter, series.session, browser)
     }
+
+    fun isMangaDex(series: Series) = series.sourceName == "MangaDex"
 
     fun referer(series: Series): String =
         if (series.sourceName == "MangaDex") "https://mangadex.org/"

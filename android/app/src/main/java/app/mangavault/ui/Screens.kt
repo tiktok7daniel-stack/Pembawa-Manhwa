@@ -617,6 +617,10 @@ private fun ProgressRow(c: ChapterProgress, word: String) {
             Text(right.uppercase(), color = color, fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp)
         }
         if (c.state == CState.ACTIVE) LineBar(frac)
+        if (c.state == CState.FAILED && !c.error.isNullOrBlank()) {
+            Text(c.error, Modifier.padding(start = 48.dp, end = 12.dp, bottom = 10.dp), color = Danger.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 2,
+                style = TextStyle(textDirection = TextDirection.Ltr))
+        }
     }
 }
 
