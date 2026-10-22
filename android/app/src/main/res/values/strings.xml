@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">MangaVault</string>
+    <string name="setup_title">Connect to your server</string>
+    <string name="setup_desc">Enter the address where your MangaVault server runs, for example https://mangavault.example.com or 192.168.1.5:3000</string>
+    <string name="setup_hint">Server address</string>
+    <string name="setup_save">Save &amp; open</string>
+    <string name="setup_invalid">Enter a valid address</string>
+    <string name="error_title">Can\'t reach the server</string>
+    <string name="error_desc">Check your internet connection and the server address.</string>
+    <string name="retry">Retry</string>
+    <string name="change_server">Change server</string>
+    <string name="shortcut_change">Change server</string>
+    <string name="download_started">Downloading %1$s</string>
+    <string name="download_failed">Could not start the download</string>
+    <string name="permission_needed">Storage permission is needed to save files</string>
+</resources>
