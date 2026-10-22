@@ -505,6 +505,12 @@ fun LogoMark(size: Dp = 34.dp) {
 
 @Composable
 fun Wordmark() {
+    // The brand always reads left-to-right, also in Arabic.
+    CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) { WordmarkRow() }
+}
+
+@Composable
+private fun WordmarkRow() {
     Row(verticalAlignment = Alignment.CenterVertically) {
         LogoMark()
         Spacer(Modifier.width(10.dp))

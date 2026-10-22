@@ -144,16 +144,16 @@ fun HomeScreen(vm: AppViewModel) {
             }
         }
         item {
-            Column(Modifier.padding(top = 26.dp, bottom = 22.dp)) {
+            Column(Modifier.padding(top = 16.dp, bottom = 18.dp)) {
                 SystemTag(t("tag"))
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 Text(
                     buildAnnotatedString {
                         append(t("hero_1"))
                         append("\n")
                         withStyle(manaSpan) { append(t("hero_2")) }
                     },
-                    fontFamily = display(), fontWeight = FontWeight.Bold, fontSize = 46.sp, lineHeight = 48.sp, letterSpacing = 0.5.sp,
+                    fontFamily = display(), fontWeight = FontWeight.Bold, fontSize = if (lang == "ar") 34.sp else 40.sp, lineHeight = if (lang == "ar") 46.sp else 42.sp, letterSpacing = 0.5.sp,
                 )
                 Spacer(Modifier.height(12.dp))
                 Muted(t("lead"), size = 14)
@@ -330,11 +330,10 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
         Column(
             Modifier.fillMaxWidth().background(p.sheet)
                 .drawWithContent { drawContent(); drawLine(Mana.copy(alpha = 0.5f), Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp),
+                .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Segmented(listOf(t("fmt_single"), t("fmt_zip")), if (vm.mode == Mode.SINGLE) 0 else 1, { vm.mode = if (it == 0) Mode.SINGLE else Mode.PER_CHAPTER })
-            Muted(t(if (vm.mode == Mode.SINGLE) "fmt_single_d" else "fmt_zip_d"), size = 12, maxLines = 2)
             PrimaryButton(
                 if (all) "${t("download_all")} · ${s.chapters.size}" else "${t("download")} · ${vm.selected.size}",
                 onDownload, icon = Ico.Download, enabled = vm.selected.isNotEmpty(),
