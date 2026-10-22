@@ -7,18 +7,20 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
-import javax.imageio.ImageIO
 
 class PdfWriterTest {
-    private fun jpeg(w: Int, h: Int, type: Int = BufferedImage.TYPE_INT_RGB): ByteArray {
-        val img = BufferedImage(w, h, type)
-        val g = img.createGraphics()
-        g.color = java.awt.Color(90, 120, 220)
-        g.fillRect(0, 0, w, h)
-        g.dispose()
-        return ByteArrayOutputStream().also { ImageIO.write(img, "jpg", it) }.toByteArray()
+    /** Just enough of a JPEG for the writer: SOI, a JFIF segment, a baseline frame header, some data, EOI. */
+    private fun jpeg(w: Int, h: Int, comps: Int = 3, sof: Int = 0xC0): ByteArray {
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0xFF.toByte(), 0xD8.toByte()))
+        out.write(byteArrayOf(0xFF.toByte(), 0xE0.toByte(), 0, 16, 'J'.code.toByte(), 'F'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 0, 1, 1, 0, 0, 1, 0, 1, 0, 0))
+        val len = 8 + comps * 3
+        out.write(byteArrayOf(0xFF.toByte(), sof.toByte(), 0, len.toByte(), 8, (h shr 8).toByte(), h.toByte(), (w shr 8).toByte(), w.toByte(), comps.toByte()))
+        repeat(comps) { out.write(byteArrayOf((it + 1).toByte(), 0x11, 0)) }
+        out.write(ByteArray(200) { 0x55 })
+        out.write(byteArrayOf(0xFF.toByte(), 0xD9.toByte()))
+        return out.toByteArray()
     }
 
     @Test
@@ -27,7 +29,9 @@ class PdfWriterTest {
         assertEquals(320, rgb.width)
         assertEquals(1800, rgb.height)
         assertEquals(3, rgb.components)
-        assertEquals(1, Jpeg.info(jpeg(50, 60, BufferedImage.TYPE_BYTE_GRAY))!!.components)
+        assertEquals(1, Jpeg.info(jpeg(50, 60, comps = 1))!!.components)
+        assertNotNull(Jpeg.info(jpeg(50, 60, sof = 0xC2))) // progressive
+        assertNull(Jpeg.info(jpeg(50, 60, sof = 0xC3))) // lossless: not shown by PDF viewers
         assertNull(Jpeg.info(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0, 0, 0, 0, 0, 0, 0)))
     }
 
