@@ -50,6 +50,7 @@ class EndToEndTest {
 
     private val throttled = java.util.concurrent.atomic.AtomicInteger()
     private val page = png(400, 600, Color.rgb(120, 90, 200))
+    private val strip by lazy { png(320, 9000, Color.rgb(30, 160, 120)) } // long webtoon page
     private val logo = png(64, 64, Color.RED)
 
     private fun html(body: String) = MockResponse().setHeader("Content-Type", "text/html")
@@ -68,6 +69,12 @@ class EndToEndTest {
                     val n = it.groupValues[1].toInt()
                     if (n in 1..4) return html("<div class=\"reading-content\">" + (1..5).joinToString("") { p -> "<img src=\"/himg/$n-$p.png\">" } + "</div>")
                 }
+                Regex("^/tall/demo/chapter-(\\d+)/$").find(path)?.let {
+                    val n = it.groupValues[1].toInt()
+                    if (n in 1..10) return html("<div class=\"reading-content\">" + (1..4).joinToString("") { p -> "<img src=\"/strip/$n-$p.png\">" } + "</div>")
+                }
+                if (path.startsWith("/strip/")) return MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(strip))
+                if (path == "/tall/demo") return html((10 downTo 1).joinToString("") { "<a href=\"/tall/demo/chapter-$it/\">Chapter $it</a>" })
                 if (path.startsWith("/himg/")) {
                     // Hotlink protection: only the chapter page is an accepted Referer, and the host throttles now and then.
                     val ref = request.getHeader("Referer") ?: ""
@@ -161,6 +168,23 @@ class EndToEndTest {
         // The system PDF renderer must accept the file and see every page.
         ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
             android.graphics.pdf.PdfRenderer(fd).use { r -> assertEquals(18, r.pageCount) }
+        }
+    }
+
+    @Test
+    fun pdfOfTenChaptersWithLongPagesHasEveryPage() = runBlocking {
+        val series = Sources.load(server.url("/tall/demo").toString(), "en", false)
+        assertEquals((1..10).map { it.toString() }, series.chapters.map { it.number })
+        Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SINGLE, Format.PDF))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        assertTrue(job.chapters.all { it.state == app.mangavault.download.CState.DONE && it.failedPages == 0 })
+        val uri = Uri.parse(Prefs.history.value.first().uri!!)
+        ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
+            android.graphics.pdf.PdfRenderer(fd).use { r ->
+                assertEquals(40, r.pageCount) // 10 chapters x 4 pages, none dropped
+                r.openPage(39).use { p -> assertTrue("page is a long strip", p.height > p.width * 10) }
+            }
         }
     }
 
