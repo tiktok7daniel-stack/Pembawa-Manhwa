@@ -209,22 +209,29 @@ object GenericSource {
         // clicks "Next" / range tabs and collects every list it sees.
         val current = found
         if (current == null || current.list.size < 2 || looksIncomplete(current.list)) {
-            val r = BrowserRenderer.render(url, expand = true, paginate = true)
-            var merged = current?.list ?: emptyList()
-            var title: Found? = null
-            for (html in r.snapshots + r.html) {
-                val snap = readSeries(html, r.url)
-                if (title == null) title = snap
-                merged = merged + snap.list
+            val r = try {
+                BrowserRenderer.render(url, expand = true, paginate = true)
+            } catch (e: SourceException) {
+                // Keep a usable plain-fetch result rather than failing the whole parse.
+                if (current != null && current.list.size >= 2) null else throw e
             }
-            val headers = mapOf("Cookie" to r.cookie, "User-Agent" to Http.UA)
-            if (looksIncomplete(merged)) merged = fillGaps(merged, headers)
-            val base = current ?: title!!
-            if (current == null || merged.size > current.list.size) {
-                base.list = merged
-                found = base
-                session = Session(r.cookie, Http.UA)
-                rendered = true
+            if (r != null) {
+                var merged = current?.list ?: emptyList()
+                var title: Found? = null
+                for (html in r.snapshots + r.html) {
+                    val snap = readSeries(html, r.url)
+                    if (title == null) title = snap
+                    merged = merged + snap.list
+                }
+                val headers = mapOf("Cookie" to r.cookie, "User-Agent" to Http.UA)
+                if (looksIncomplete(merged)) merged = fillGaps(merged, headers)
+                val base = current ?: title!!
+                if (current == null || merged.size > current.list.size) {
+                    base.list = merged
+                    found = base
+                    session = Session(r.cookie, Http.UA)
+                    rendered = true
+                }
             }
         }
         val result = found ?: throw SourceException(Err.NO_CHAPTERS)

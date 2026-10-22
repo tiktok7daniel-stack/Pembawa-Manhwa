@@ -124,8 +124,7 @@ object Downloader {
                         zip.putNextEntry(ZipEntry("ComicInfo.xml"))
                         zip.write(comicInfo(series.title, ch, good).toByteArray())
                         zip.closeEntry()
-                        zip.finish()
-                        zip.flush()
+                        zip.close() // flushes and closes the file before it is published
                         last = target!!.finish()
                         files++
                     }
@@ -146,8 +145,7 @@ object Downloader {
                 singleZip!!.putNextEntry(ZipEntry("ComicInfo.xml"))
                 singleZip.write(comicInfo(series.title, null, 0).toByteArray())
                 singleZip.closeEntry()
-                singleZip.finish()
-                singleZip.flush()
+                singleZip.close()
                 last = singleTarget!!.finish()
                 files = 1
                 singleTarget = null

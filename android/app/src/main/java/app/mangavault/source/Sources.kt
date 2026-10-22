@@ -13,7 +13,7 @@ object Sources {
             .trimEnd('.', ',', ')', ']', '!', '?', '"', '\'')
         if (!s.contains("://")) s = "https://$s"
         val u = try { URL(s) } catch (_: Exception) { throw SourceException(Err.BAD_URL) }
-        if (u.protocol != "http" && u.protocol != "https" || u.host.isNullOrBlank() || !u.host.contains('.')) throw SourceException(Err.BAD_URL)
+        if (u.protocol != "http" && u.protocol != "https" || u.host.isNullOrBlank() || !(u.host.contains('.') || u.host == "localhost")) throw SourceException(Err.BAD_URL)
         return s
     }
 

@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
@@ -608,12 +609,12 @@ private fun Orbit() {
         val c = center
         val r = size.minDimension / 2
         drawCircle(Brush.radialGradient(listOf(Pink.copy(alpha = 0.45f), Color.Transparent), c, r * pulse), r * pulse, c)
-        androidx.compose.ui.graphics.drawscope.rotate(a, c) {
+        rotate(a, c) {
             drawArc(Brush.sweepGradient(listOf(Color.Transparent, Violet, Pink), c), 0f, 260f, false,
                 androidx.compose.ui.geometry.Offset(c.x - r * 0.8f, c.y - r * 0.8f), androidx.compose.ui.geometry.Size(r * 1.6f, r * 1.6f),
                 style = Stroke(r * 0.07f, cap = StrokeCap.Round))
         }
-        androidx.compose.ui.graphics.drawscope.rotate(b, c) {
+        rotate(b, c) {
             drawArc(Brush.sweepGradient(listOf(Color.Transparent, Peach, Mint), c), 0f, 200f, false,
                 androidx.compose.ui.geometry.Offset(c.x - r * 0.55f, c.y - r * 0.55f), androidx.compose.ui.geometry.Size(r * 1.1f, r * 1.1f),
                 style = Stroke(r * 0.06f, cap = StrokeCap.Round))

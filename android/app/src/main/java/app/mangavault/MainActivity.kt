@@ -21,7 +21,7 @@ import app.mangavault.ui.Strings
 import app.mangavault.data.Prefs
 
 class MainActivity : ComponentActivity() {
-    private val vm: AppViewModel by viewModels()
+    val vm: AppViewModel by viewModels()
     private var afterStoragePermission: (() -> Unit)? = null
 
     private val storagePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun beginDownload() {
+    fun beginDownload() {
         if (vm.selected.isEmpty()) {
             Toast.makeText(this, Strings.get(Prefs.lang.value, "pick_one"), Toast.LENGTH_SHORT).show()
             return
