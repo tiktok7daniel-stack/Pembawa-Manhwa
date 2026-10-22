@@ -5,34 +5,54 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,24 +61,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import app.mangavault.data.HistoryItem
 import app.mangavault.data.Prefs
 import app.mangavault.download.CState
@@ -66,300 +89,185 @@ import app.mangavault.download.DownloadState
 import app.mangavault.download.JobStatus
 import app.mangavault.download.Mode
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
-@Composable
-private fun Muted(text: String, modifier: Modifier = Modifier, size: Int = 14) =
-    Text(text, modifier, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = size.sp, lineHeight = (size * 1.5).sp)
+private val gradSpan = SpanStyle(brush = AccentH, fontWeight = FontWeight.SemiBold)
 
 @Composable
-private fun Title(text: String) = Text(text, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
+private fun TopRow(title: String? = null, onBack: (() -> Unit)? = null, trailing: @Composable () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (onBack != null) {
+            Box(Modifier.size(46.dp).glass(CircleShape).bouncyClick(onClick = onBack), contentAlignment = Alignment.Center) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = LocalPalette.current.text, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+        }
+        if (title != null) Text(title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        else Spacer(Modifier.weight(1f))
+        trailing()
+    }
+}
 
-// ---------------------------------------------------------------- Home
+// ================================================================ Home
 
 @Composable
 fun HomeScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
+    val p = LocalPalette.current
     val lang = LocalLang.current
     val theme by Prefs.theme.collectAsState()
-    val center = androidx.compose.ui.text.style.TextAlign.Center
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 130.dp)) {
         item {
-            Column(Modifier.padding(horizontal = 18.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Reveal(0) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Logo()
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip(if (lang == "ar") "EN" else "ع", { Prefs.setLang(if (lang == "ar") "en" else "ar") })
-                        Chip(if (theme == "light") "☾" else "☀", { Prefs.setTheme(if (theme == "light") "dark" else "light") })
-                    }
+                    Spacer(Modifier.weight(1f))
+                    GlassChip(if (lang == "ar") "EN" else "ع", { Prefs.setLang(if (lang == "ar") "en" else "ar") })
+                    Spacer(Modifier.width(8.dp))
+                    ThemeSwitch(theme != "light") { Prefs.setTheme(if (it) "dark" else "light") }
                 }
-                Spacer(Modifier.height(30.dp))
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    BoxCard {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(10.dp).rotate(45f).background(Yellow))
-                            Spacer(Modifier.width(12.dp))
-                            Text(t("badge"), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.5.sp, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
+            }
+        }
+        item {
+            Reveal(1) {
+                Column(Modifier.padding(top = 34.dp, bottom = 26.dp)) {
+                    Muted(t("welcome"), size = 15)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        buildAnnotatedString {
+                            withStyle(gradSpan) { append(t("h_a")) }
+                            append(t("h_b"))
+                            withStyle(gradSpan) { append(t("h_c")) }
+                            append(t("h_d"))
+                        },
+                        fontSize = 40.sp, lineHeight = 50.sp, fontWeight = FontWeight.Light,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Muted(t("lead"), size = 15)
                 }
-                Spacer(Modifier.height(24.dp))
-                Text(t("h1a"), Modifier.fillMaxWidth(), fontFamily = displayFont(), fontSize = 44.sp, lineHeight = 50.sp,
-                    color = MaterialTheme.colorScheme.onBackground, textAlign = center)
-                Text(
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(brush = Brush.verticalGradient(listOf(Yellow, Orange)), shadow = Shadow(Red, Offset(7f, 7f), 0f))) { append(t("h1b")) }
-                    },
-                    Modifier.fillMaxWidth(), fontFamily = displayFont(), fontSize = 50.sp, lineHeight = 58.sp, textAlign = center,
-                )
-                Spacer(Modifier.height(16.dp))
-                val hl = SpanStyle(color = Yellow, background = Yellow.copy(alpha = 0.14f), fontWeight = FontWeight.Bold)
-                Text(
-                    buildAnnotatedString {
-                        append(t("lead_a")); withStyle(hl) { append(t("lead_hl1")) }
-                        append(t("lead_b")); withStyle(hl) { append(t("lead_hl2")) }
-                        append(t("lead_c"))
-                    },
-                    Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f), fontSize = 18.sp, lineHeight = 28.sp, textAlign = center,
-                )
-                Spacer(Modifier.height(24.dp))
-
-                BoxCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.background)
-                                .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(start = 16.dp, end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            LinkGlyph(MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.width(14.dp))
-                            Box(Modifier.weight(1f).padding(vertical = 18.dp)) {
-                                if (vm.url.isEmpty()) Muted(t("ph_url"), size = 16)
-                                BasicTextField(
-                                    vm.url, { vm.url = it }, singleLine = true,
-                                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textDirection = TextDirection.Ltr),
-                                    cursorBrush = SolidColor(Orange),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = androidx.compose.ui.text.input.ImeAction.Go),
-                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onGo = { vm.parse() }),
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Chip(t("paste"), {
-                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val txt = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()
-                                if (!txt.isNullOrBlank()) vm.url = Regex("https?://\\S+").find(txt)?.value ?: txt.trim()
-                            })
+            }
+        }
+        item {
+            Reveal(2) {
+                GlassCard(Modifier.fillMaxWidth(), padding = 14.dp) {
+                    Row(
+                        Modifier.fillMaxWidth().glass(CircleShape).padding(start = 18.dp, end = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LinkGlyph(p.muted)
+                        Spacer(Modifier.width(12.dp))
+                        Box(Modifier.weight(1f).padding(vertical = 18.dp)) {
+                            if (vm.url.isEmpty()) Muted(t("ph_url"), size = 15)
+                            BasicTextField(
+                                vm.url, { vm.url = it }, singleLine = true,
+                                textStyle = TextStyle(color = p.text, fontSize = 15.sp, textDirection = TextDirection.Ltr),
+                                cursorBrush = SolidColor(Pink),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+                                keyboardActions = KeyboardActions(onGo = { vm.parse() }),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
-                        BrandButton(t("parse"), { vm.parse() }, loading = vm.loading, enabled = vm.url.isNotBlank(), search = true)
-                        Row(
-                            Modifier.fillMaxWidth().clickable { vm.browserMode = !vm.browserMode },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(vm.browserMode, { vm.browserMode = it }, colors = CheckboxDefaults.colors(checkedColor = Orange))
-                            Column {
-                                Text(t("browser"), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
-                                Muted(t("browser_d"), size = 12)
-                            }
-                        }
+                        GlassChip(t("paste"), {
+                            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val txt = cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()
+                            if (!txt.isNullOrBlank()) vm.url = Regex("https?://\\S+").find(txt)?.value ?: txt.trim()
+                        })
                     }
-                }
-                vm.errorKey?.let { key ->
                     Spacer(Modifier.height(12.dp))
-                    BoxCard(Modifier.fillMaxWidth(), border = MaterialTheme.colorScheme.error) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.Top) {
-                                Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.error), contentAlignment = Alignment.Center) {
-                                    Text("✕", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Spacer(Modifier.width(10.dp))
-                                Text(t(key) + if (vm.errorDetail.isNotEmpty()) " (${vm.errorDetail})" else "", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, lineHeight = 20.sp)
+                    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(42.dp).clip(CircleShape).background(AccentD), contentAlignment = Alignment.Center) {
+                            Text("✦", color = Color.White, fontSize = 18.sp)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(t("browser"), fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                            Muted(t("browser_d"), size = 12)
+                        }
+                        GlassToggle(vm.browserMode) { vm.browserMode = it }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    GradientButton(t("cta"), { vm.parse() }, loading = vm.loading, enabled = vm.url.isNotBlank())
+                }
+            }
+        }
+        item {
+            vm.errorKey?.let { key ->
+                Spacer(Modifier.height(14.dp))
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Danger.copy(alpha = 0.12f))
+                        .border(1.dp, Danger.copy(alpha = 0.45f), RoundedCornerShape(22.dp)).padding(16.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Box(Modifier.size(26.dp).clip(CircleShape).background(Danger), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.Close, null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(t(key) + if (vm.errorDetail.isNotEmpty()) " (${vm.errorDetail})" else "", fontSize = 14.sp, lineHeight = 21.sp)
+                    }
+                    if (vm.verifyUrl != null) {
+                        Spacer(Modifier.height(12.dp))
+                        GlassChip(t("verify_btn"), { vm.showVerify = true }, selected = true)
+                    }
+                }
+            }
+        }
+        item {
+            Reveal(3) {
+                Column(Modifier.padding(top = 30.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(t("how"), Modifier.weight(1f), fontSize = 19.sp, fontWeight = FontWeight.Medium)
+                        Muted(t("swipe"), size = 13)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+        }
+        item {
+            Reveal(4) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(listOf("s1", "s2", "s3")) { k ->
+                        GlassCard(Modifier.width(230.dp).height(190.dp)) {
+                            Box(Modifier.size(44.dp).shadow(14.dp, CircleShape, spotColor = Pink).clip(CircleShape).background(AccentD), contentAlignment = Alignment.Center) {
+                                Text(k.drop(1), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
                             }
-                            if (vm.verifyUrl != null) BrandButton(t("verify_btn"), { vm.showVerify = true })
+                            Spacer(Modifier.height(16.dp))
+                            Text(t(k + "_t"), fontWeight = FontWeight.Medium, fontSize = 17.sp)
+                            Spacer(Modifier.height(6.dp))
+                            Muted(t(k + "_d"), size = 13)
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
-                Muted(t("disclaimer"), Modifier.fillMaxWidth(), 13)
-                Spacer(Modifier.height(20.dp))
-                BoxCard(Modifier.fillMaxWidth(), border = Yellow.copy(alpha = 0.6f)) {
-                    Column(Modifier.background(Yellow.copy(alpha = 0.07f)).padding(16.dp)) {
-                        Tag(t("promo_t"), Yellow, androidx.compose.ui.graphics.Color.Black)
-                        Spacer(Modifier.height(10.dp))
-                        Text(t("promo_d"), color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, lineHeight = 24.sp)
-                    }
-                }
-                Spacer(Modifier.height(32.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(t("how"), fontFamily = Mono, fontWeight = FontWeight.Bold, letterSpacing = 3.sp, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(t("swipe"), fontFamily = Mono, letterSpacing = 2.sp, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 22.dp, vertical = 10.dp),
-            ) {
-                item { StepCard("01", t("s1_t"), -1.5f) { StepPaste() } }
-                item { StepCard("02", t("s2_t"), 1.2f) { StepPick() } }
-                item { StepCard("03", t("s3_t"), -1f) { StepRead() } }
-            }
-            Spacer(Modifier.height(30.dp))
-        }
-    }
-}
-
-@Composable
-private fun StepCard(no: String, label: String, tilt: Float, content: @Composable () -> Unit) {
-    BoxCard(Modifier.width(268.dp).height(250.dp).rotate(tilt)) {
-        Column {
-            Tag("$no · $label")
-            Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) { content() }
-        }
-    }
-}
-
-@Composable
-private fun StepPaste() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Muted(t("s1_d"), size = 13)
-        Box(Modifier.fillMaxWidth().border(2.dp, Yellow).padding(horizontal = 10.dp, vertical = 9.dp)) {
-            Text(t("demo_url"), fontFamily = Mono, fontSize = 12.sp, color = Yellow, maxLines = 1)
-        }
-        Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(5.dp)).background(BrandBrush), contentAlignment = Alignment.Center) {
-            Text(t("parse"), color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        }
-    }
-}
-
-@Composable
-private fun StepPick() {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            buildAnnotatedString { append("Ch. 1 "); withStyle(SpanStyle(color = Orange)) { append("→") }; append(" 10") },
-            fontFamily = Display, fontSize = 30.sp, color = MaterialTheme.colorScheme.onSurface,
-        )
-        Row(Modifier.fillMaxWidth().height(40.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
-            repeat(22) { i ->
-                Box(Modifier.weight(1f).fillMaxSize().background(if (i < 10) Yellow else MaterialTheme.colorScheme.outline))
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Tag(t("first10"), Yellow, androidx.compose.ui.graphics.Color.Black)
-            Tag(t("last10"))
+        item {
+            Reveal(5) { Muted(t("disclaimer"), Modifier.fillMaxWidth().padding(top = 26.dp), 12) }
         }
     }
 }
 
+/** Sun/moon capsule switch. */
 @Composable
-private fun StepRead() {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("CBZ", fontFamily = Display, fontSize = 44.sp, style = TextStyle(brush = Brush.verticalGradient(listOf(Yellow, Orange))))
-        Text("✓ " + t("demo_saved"), color = androidx.compose.ui.graphics.Color(0xFF4ADE80), fontFamily = Mono, fontSize = 11.sp)
-        Muted(t("s3_d"), size = 13)
-    }
-}
-
-/** Bottom sheet shown while a link is being analysed. */
-@Composable
-fun FindingSheet(url: String, onCancel: () -> Unit) {
-    var step by remember { mutableStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) { kotlinx.coroutines.delay(4000); if (step < 2) step++ }
-    }
-    SheetFrame(t("searching"), t("find_t"), onCancel) {
-        Muted(t(listOf("find_1", "find_2", "find_3")[step]), size = 15)
-        Spacer(Modifier.height(14.dp))
-        UrlBox(url)
-        Spacer(Modifier.height(16.dp))
-        LinearProgressIndicator(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)), color = Yellow, trackColor = MaterialTheme.colorScheme.surfaceVariant)
-        Spacer(Modifier.height(10.dp))
-    }
-}
-
-/** Visible browser where the user passes a site's human check themselves; cookies are shared with the downloader. */
-@android.annotation.SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun VerifySheet(url: String, onDone: () -> Unit, onClose: () -> Unit) {
-    SheetFrame(t("verify_tag"), t("verify_t"), onClose, fill = true) {
-        Muted(t("verify_d"), size = 14)
-        Spacer(Modifier.height(10.dp))
-        UrlBox(url)
-        Spacer(Modifier.height(10.dp))
-        androidx.compose.ui.viewinterop.AndroidView(
-            factory = { c ->
-                android.webkit.WebView(c).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.userAgentString = app.mangavault.source.BROWSER_UA
-                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webViewClient = android.webkit.WebViewClient()
-                    loadUrl(url)
-                }
-            },
-            onRelease = { it.destroy() },
-            modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
-        )
-        Spacer(Modifier.height(12.dp))
-        BrandButton(t("verify_done"), {
-            android.webkit.CookieManager.getInstance().flush()
-            onDone()
-        })
-    }
-}
-
-@Composable
-private fun UrlBox(url: String) {
-    Row(
-        Modifier.fillMaxWidth().border(1.5.dp, MaterialTheme.colorScheme.outline).padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(Yellow))
-        Spacer(Modifier.width(12.dp))
-        Text(url, fontFamily = Mono, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = TextStyle(textDirection = TextDirection.Ltr))
-    }
-}
-
-@Composable
-private fun SheetFrame(tag: String, title: String, onClose: () -> Unit, fill: Boolean = false, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    Box(
-        Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f))
-            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { },
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Column(
-            (if (fill) Modifier.fillMaxSize().padding(top = 40.dp) else Modifier.fillMaxWidth())
-                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)).background(MaterialTheme.colorScheme.surface),
-        ) {
-            Box(Modifier.fillMaxWidth().height(4.dp).background(Brush.horizontalGradient(listOf(Red, Orange, Yellow))))
-            Column(Modifier.padding(horizontal = 20.dp).padding(top = 10.dp, bottom = 20.dp).let { if (fill) it.weight(1f) else it }) {
-                Box(Modifier.align(Alignment.CenterHorizontally).width(44.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.outline))
-                Spacer(Modifier.height(14.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Tag(tag)
-                    Box(
-                        Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                            .clickable(onClick = onClose),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("✕", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface) }
-                }
-                Spacer(Modifier.height(14.dp))
-                Text(title, fontFamily = displayFont(), fontSize = 28.sp, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(Modifier.height(8.dp))
-                content()
-            }
+private fun ThemeSwitch(dark: Boolean, onChange: (Boolean) -> Unit) {
+    val x by animateDpAsState(if (dark) 30.dp else 0.dp, spring(dampingRatio = 0.6f, stiffness = 500f), label = "theme")
+    Box(Modifier.width(66.dp).height(36.dp).glass(CircleShape).clickable { onChange(!dark) }.padding(3.dp)) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
+            Text("☀", fontSize = 13.sp, color = LocalPalette.current.muted)
+            Text("☾", fontSize = 13.sp, color = LocalPalette.current.muted)
+        }
+        Box(Modifier.padding(start = x).size(30.dp).shadow(8.dp, CircleShape, spotColor = Violet).clip(CircleShape).background(AccentD), contentAlignment = Alignment.Center) {
+            Text(if (dark) "☾" else "☀", fontSize = 14.sp, color = Color.White)
         }
     }
 }
 
-// ---------------------------------------------------------------- Result
+// ================================================================ Result
 
 @Composable
 fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
     val s = vm.series ?: return
+    val p = LocalPalette.current
     val word = t("chapter")
     var query by remember { mutableStateOf("") }
     var from by remember { mutableStateOf("") }
@@ -367,152 +275,210 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
     val filtered = remember(s, query) { s.chapters.filter { query.isBlank() || chapterLabel(it, word).contains(query.trim(), true) } }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Chip("←  " + t("back"), { vm.back() })
-        }
-        LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp)) {
+        TopRow(t("chapters_title"), { vm.back() })
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                BoxCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (s.cover != null) {
-                            AsyncImage(s.cover, null, Modifier.width(96.dp).height(138.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(s.sourceName.uppercase(), color = Yellow, fontFamily = FontFamily.Monospace, fontSize = 12.sp, letterSpacing = 2.sp)
-                            Text(s.title, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                            if (s.description.isNotBlank()) Muted(s.description, Modifier.padding(top = 4.dp), 13)
-                            Text("${s.chapters.size} ${t("chapters")}", color = Orange, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                Reveal(0) {
+                    GlassCard(Modifier.fillMaxWidth()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            if (s.cover != null) {
+                                AsyncImage(
+                                    s.cover, null,
+                                    Modifier.width(104.dp).height(150.dp).shadow(18.dp, RoundedCornerShape(18.dp), spotColor = Violet).clip(RoundedCornerShape(18.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Label(s.sourceName)
+                                Spacer(Modifier.height(4.dp))
+                                Text(s.title, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, lineHeight = 25.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                if (s.description.isNotBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(s.description, color = p.muted, fontSize = 12.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text(buildAnnotatedString { withStyle(gradSpan) { append(s.chapters.size.toString()) } }, fontSize = 30.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Muted(t("chapters"), Modifier.padding(bottom = 6.dp), 13)
+                                }
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                SmallField(query, { query = it }, t("search_ch"), Modifier.fillMaxWidth(), KeyboardType.Text)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SmallField(from, { from = it }, "1", Modifier.width(64.dp), KeyboardType.Decimal)
-                    Text("→", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SmallField(to, { to = it }, "∞", Modifier.width(64.dp), KeyboardType.Decimal)
-                    Chip(t("range"), { vm.selectRange(from.toDoubleOrNull(), to.toDoubleOrNull()) })
+            }
+            item {
+                Reveal(1) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                        Row(Modifier.fillMaxWidth().glass(CircleShape).padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Search, null, tint = p.muted, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            InlineField(query, { query = it }, t("search_ch"), Modifier.weight(1f).padding(vertical = 15.dp), KeyboardType.Text)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InlineField(from, { from = it }, t("from"), Modifier.width(84.dp).glass(CircleShape).padding(horizontal = 16.dp, vertical = 12.dp), KeyboardType.Decimal)
+                            Muted("→")
+                            InlineField(to, { to = it }, t("to"), Modifier.width(84.dp).glass(CircleShape).padding(horizontal = 16.dp, vertical = 12.dp), KeyboardType.Decimal)
+                            GlassChip(t("range"), { vm.selectRange(from.toDoubleOrNull(), to.toDoubleOrNull()) })
+                        }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            GlassChip(t("all"), { vm.selectAll() }, vm.selected.size == s.chapters.size)
+                            GlassChip(t("first10"), { vm.selectFirst(10) })
+                            GlassChip(t("last10"), { vm.selectLast(10) })
+                            GlassChip(t("none"), { vm.selectNone() }, vm.selected.isEmpty())
+                        }
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip(t("all"), { vm.selectAll() })
-                    Chip(t("first10"), { vm.selectFirst(10) })
-                    Chip(t("last10"), { vm.selectLast(10) })
-                    Chip(t("none"), { vm.selectNone() })
-                }
-                Spacer(Modifier.height(8.dp))
             }
             items(filtered, key = { it.id }) { c ->
+                val on = c.id in vm.selected
+                val tint by animateColorAsState(if (on) Pink.copy(alpha = 0.13f) else Color.Transparent, label = "row")
                 Row(
-                    Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(8.dp)).clickable { vm.toggle(c.id) }
-                        .background(if (c.id in vm.selected) Orange.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface)
-                        .border(1.dp, if (c.id in vm.selected) Orange.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    Modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).background(tint).clickable { vm.toggle(c.id) }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Checkbox(c.id in vm.selected, { vm.toggle(c.id) }, colors = CheckboxDefaults.colors(checkedColor = Orange))
-                    Text(chapterLabel(c, word), color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    CheckOrb(on)
+                    Spacer(Modifier.width(14.dp))
+                    Text(chapterLabel(c, word), Modifier.weight(1f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             item { Spacer(Modifier.height(8.dp)) }
         }
-        BoxCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FormatRow(vm.mode == Mode.SINGLE, t("fmt_single"), t("fmt_single_d")) { vm.mode = Mode.SINGLE }
-                FormatRow(vm.mode == Mode.PER_CHAPTER, t("fmt_zip"), t("fmt_zip_d")) { vm.mode = Mode.PER_CHAPTER }
-                BrandButton("${t("download")} (${vm.selected.size})", onDownload, enabled = vm.selected.isNotEmpty())
-            }
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(p.sheet)
+                .border(1.dp, Brush.verticalGradient(listOf(p.stroke, Color.Transparent)), RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                .navigationBarsPadding().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Label(t("format"))
+            Segmented(listOf(t("fmt_single"), t("fmt_zip")), if (vm.mode == Mode.SINGLE) 0 else 1, { vm.mode = if (it == 0) Mode.SINGLE else Mode.PER_CHAPTER })
+            Muted(t(if (vm.mode == Mode.SINGLE) "fmt_single_d" else "fmt_zip_d"), size = 12)
+            GradientButton("${t("download")} · ${vm.selected.size}", onDownload, enabled = vm.selected.isNotEmpty())
         }
     }
 }
 
 @Composable
-private fun SmallField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier, type: KeyboardType) {
-    Box(
-        modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
-    ) {
+private fun InlineField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier, type: KeyboardType) {
+    val p = LocalPalette.current
+    Box(modifier) {
         if (value.isEmpty()) Muted(hint, size = 14)
         BasicTextField(
-            value, onChange, singleLine = true, cursorBrush = SolidColor(Orange),
-            textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp),
+            value, onChange, singleLine = true, cursorBrush = SolidColor(Pink),
+            textStyle = TextStyle(color = p.text, fontSize = 14.sp),
             keyboardOptions = KeyboardOptions(keyboardType = type), modifier = Modifier.fillMaxWidth(),
         )
     }
 }
 
-@Composable
-private fun FormatRow(selected: Boolean, title: String, desc: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick)
-            .border(1.dp, if (selected) Yellow else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).padding(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected, onClick)
-        Column {
-            Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
-            Muted(desc, size = 12)
-        }
-    }
-}
-
-// ---------------------------------------------------------------- Progress
+// ================================================================ Progress
 
 @Composable
 fun ProgressScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
+    val p = LocalPalette.current
     val job by DownloadState.job.collectAsState()
     val word = t("chapter")
-    val j = job
-    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Chip("←  " + t("back"), { vm.back() })
-        }
-        if (j == null) return@Column
-        BoxCard(Modifier.fillMaxWidth().weight(1f)) {
-            Column(Modifier.padding(14.dp)) {
-                Text(j.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(6.dp))
-                val status = when (j.status) {
-                    JobStatus.RUNNING -> "${t("st_running")} ${j.percent}% · ${j.doneChapters}/${j.chapters.size}"
-                    JobStatus.DONE -> t("st_done")
-                    JobStatus.ERROR -> t("st_error") + (j.error?.let { ": $it" } ?: "")
-                    JobStatus.CANCELLED -> t("st_cancelled")
-                }
-                Text(status, color = if (j.status == JobStatus.ERROR) MaterialTheme.colorScheme.error else Yellow, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(10.dp))
-                LinearProgressIndicator({ j.percent / 100f }, Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)), color = Orange, trackColor = MaterialTheme.colorScheme.surfaceVariant)
-                Spacer(Modifier.height(12.dp))
-                LazyColumn(Modifier.weight(1f)) {
-                    items(j.chapters, key = { it.chapter.id }) { c ->
-                        Column(Modifier.padding(vertical = 5.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(chapterLabel(c.chapter, word), Modifier.weight(1f), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                val label = t("s_" + c.state.name.lowercase()) + if (c.state == CState.ACTIVE && c.total > 0) " ${c.done}/${c.total}" else ""
-                                Muted(label, size = 13)
+    val j = job ?: return
+    Column(Modifier.fillMaxSize()) {
+        TopRow(j.title, { vm.back() })
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Reveal(0) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        RingProgress(j.percent / 100f, Modifier.size(250.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Muted(t("progress"), size = 13)
+                                Text("${j.percent}%", fontSize = 48.sp, fontWeight = FontWeight.Light)
+                                Muted("${j.doneChapters} / ${j.chapters.size} ${t("chapters")}", size = 12)
                             }
-                            val p = when (c.state) { CState.DONE, CState.PARTIAL, CState.FAILED -> 1f; else -> if (c.total > 0) c.done.toFloat() / c.total else 0f }
-                            LinearProgressIndicator(
-                                { p }, Modifier.fillMaxWidth().padding(top = 4.dp).height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                color = when (c.state) { CState.DONE -> androidx.compose.ui.graphics.Color(0xFF4ADE80); CState.FAILED, CState.PARTIAL -> MaterialTheme.colorScheme.error; else -> Orange },
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            )
                         }
+                        Spacer(Modifier.height(14.dp))
+                        val (status, color) = when (j.status) {
+                            JobStatus.RUNNING -> t("st_running") to Peach
+                            JobStatus.DONE -> t("st_done") to Mint
+                            JobStatus.ERROR -> (t("st_error") + (j.error?.let { ": $it" } ?: "")) to Danger
+                            JobStatus.CANCELLED -> t("st_cancelled") to p.muted
+                        }
+                        Row(Modifier.glass(CircleShape).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+                            Spacer(Modifier.width(8.dp))
+                            Text(status, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        BarChart(j.chapters.map { c ->
+                            Triple(
+                                c.chapter.number ?: "", c.state,
+                                when (c.state) { CState.DONE, CState.PARTIAL, CState.FAILED -> 1f; else -> if (c.total > 0) c.done.toFloat() / c.total else 0f },
+                            )
+                        }, j.chapters.indexOfFirst { it.state == CState.ACTIVE })
+                        Spacer(Modifier.height(10.dp))
                     }
-                }
-                Spacer(Modifier.height(10.dp))
-                when (j.status) {
-                    JobStatus.RUNNING -> Chip(t("cancel"), { vm.cancelDownload() })
-                    JobStatus.DONE -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        j.savedPath?.let { Muted("${t("saved_in")}: $it", size = 13) }
-                        BrandButton(t("open_dl"), { openDownloads(ctx) })
-                    }
-                    else -> Unit
                 }
             }
+            items(j.chapters, key = { it.chapter.id }) { c ->
+                val frac = when (c.state) { CState.DONE, CState.PARTIAL, CState.FAILED -> 1f; else -> if (c.total > 0) c.done.toFloat() / c.total else 0f }
+                val animFrac by androidx.compose.animation.core.animateFloatAsState(frac, tween(500), label = "row")
+                Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp)).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(chapterLabel(c.chapter, word), Modifier.weight(1f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Muted(t("s_" + c.state.name.lowercase()) + if (c.state == CState.ACTIVE && c.total > 0) "  ${c.done}/${c.total}" else "", size = 12)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth().height(5.dp).clip(CircleShape).background(p.faint.copy(alpha = 0.3f))) {
+                        Box(
+                            Modifier.fillMaxWidth(animFrac).fillMaxHeight().clip(CircleShape).background(
+                                when (c.state) {
+                                    CState.DONE -> Brush.horizontalGradient(listOf(Mint, Violet))
+                                    CState.FAILED, CState.PARTIAL -> SolidColor(Danger)
+                                    else -> AccentH
+                                },
+                            ),
+                        )
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(6.dp)) }
         }
-        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            when (j.status) {
+                JobStatus.RUNNING -> GlassChip(t("cancel"), { vm.cancelDownload() }, modifier = Modifier.fillMaxWidth())
+                JobStatus.DONE -> {
+                    j.savedPath?.let { Muted("${t("saved_in")}: $it", size = 12) }
+                    GradientButton(t("open_dl"), { openDownloads(ctx) })
+                }
+                else -> Unit
+            }
+        }
+    }
+}
+
+/** Glowing vertical bars for the chapters around the one being downloaded. */
+@Composable
+private fun BarChart(items: List<Triple<String, CState, Float>>, active: Int) {
+    if (items.isEmpty()) return
+    val p = LocalPalette.current
+    val window = 12
+    val start = (if (active < 0) items.size - window else active - window / 2).coerceIn(0, maxOf(0, items.size - window))
+    val slice = items.drop(start).take(window)
+    Row(Modifier.fillMaxWidth().height(150.dp).glass(RoundedCornerShape(26.dp)).padding(horizontal = 14.dp, vertical = 14.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        slice.forEach { (num, state, frac) ->
+            val h by androidx.compose.animation.core.animateFloatAsState(0.08f + 0.92f * frac, tween(600, easing = FastOutSlowInEasing), label = "bar")
+            Column(Modifier.fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+                val brush = when (state) {
+                    CState.DONE -> Brush.verticalGradient(listOf(Mint, Violet))
+                    CState.ACTIVE -> Brush.verticalGradient(listOf(Peach, Pink))
+                    CState.FAILED, CState.PARTIAL -> SolidColor(Danger)
+                    CState.QUEUED -> SolidColor(p.faint.copy(alpha = 0.4f))
+                }
+                Box(Modifier.weight(1f).width(8.dp), contentAlignment = Alignment.BottomCenter) {
+                    Box(Modifier.fillMaxWidth().fillMaxHeight(h).shadow(if (state == CState.ACTIVE) 10.dp else 0.dp, CircleShape, spotColor = Pink).clip(CircleShape).background(brush))
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(num.take(4), fontSize = 9.sp, color = if (state == CState.ACTIVE) p.text else p.muted, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -524,32 +490,41 @@ fun openDownloads(ctx: Context) {
     }
 }
 
-// ---------------------------------------------------------------- Downloads & Settings
+// ================================================================ Downloads & Settings
 
 @Composable
 fun DownloadsScreen() {
     val ctx = LocalContext.current
     val items by Prefs.history.collectAsState()
-    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Title(t("nav_downloads"))
-            if (items.isNotEmpty()) Chip(t("hist_clear"), { Prefs.clearHistory() })
-        }
-        Spacer(Modifier.height(12.dp))
-        if (items.isEmpty()) Muted(t("hist_empty"), size = 15)
-        else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(items) { h -> HistoryCard(h) { openDownloads(ctx) } }
+    Column(Modifier.fillMaxSize()) {
+        TopRow(t("nav_downloads")) { if (items.isNotEmpty()) GlassChip(t("hist_clear"), { Prefs.clearHistory() }) }
+        if (items.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(bottom = 120.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Box(Modifier.size(90.dp).shadow(30.dp, CircleShape, spotColor = Pink).clip(CircleShape).background(AccentD), contentAlignment = Alignment.Center) {
+                    Icon(DownloadIcon, null, tint = Color.White, modifier = Modifier.size(38.dp))
+                }
+                Spacer(Modifier.height(20.dp))
+                Muted(t("hist_empty"), size = 15)
+            }
+        } else {
+            LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(items.withIndex().toList(), key = { it.index }) { (i, h) -> Reveal(i.coerceAtMost(8)) { HistoryCard(h) { openDownloads(ctx) } } }
+            }
         }
     }
 }
 
 @Composable
 private fun HistoryCard(h: HistoryItem, onOpen: () -> Unit) {
-    BoxCard(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-        Column(Modifier.padding(14.dp)) {
-            Text(h.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Muted("${h.chapters} ${t("chapters")} · ${h.files} ${t("files")} · " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(h.time)), size = 13)
-            Text(h.path, color = Yellow, fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 4.dp))
+    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(24.dp)).bouncyClick(onClick = onOpen).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(AccentD), contentAlignment = Alignment.Center) {
+            Icon(DownloadIcon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(h.title, fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Muted("${h.chapters} ${t("chapters")} · ${h.files} ${t("files")}", size = 12)
+            Muted(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(h.time)), size = 11)
         }
     }
 }
@@ -560,32 +535,161 @@ fun SettingsScreen() {
     val lang by Prefs.lang.collectAsState()
     val theme by Prefs.theme.collectAsState()
     val browser by Prefs.browserDefault.collectAsState()
-    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Title(t("nav_settings"))
-        BoxCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(t("set_lang"), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip("English", { Prefs.setLang("en") }, lang == "en")
-                    Chip("العربية", { Prefs.setLang("ar") }, lang == "ar")
+    Column(Modifier.fillMaxSize()) {
+        TopRow(t("nav_settings"))
+        LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item {
+                Reveal(0) {
+                    GlassCard(Modifier.fillMaxWidth()) {
+                        Label(t("set_lang"))
+                        Spacer(Modifier.height(10.dp))
+                        Segmented(listOf("English", "العربية"), if (lang == "ar") 1 else 0, { Prefs.setLang(if (it == 1) "ar" else "en") })
+                        Spacer(Modifier.height(18.dp))
+                        Label(t("set_theme"))
+                        Spacer(Modifier.height(10.dp))
+                        val themes = listOf("dark", "light", "system")
+                        Segmented(listOf(t("theme_dark"), t("theme_light"), t("theme_system")), themes.indexOf(theme).coerceAtLeast(0), { Prefs.setTheme(themes[it]) })
+                    }
                 }
-                Text(t("set_theme"), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip(t("theme_dark"), { Prefs.setTheme("dark") }, theme == "dark")
-                    Chip(t("theme_light"), { Prefs.setTheme("light") }, theme == "light")
-                    Chip(t("theme_system"), { Prefs.setTheme("system") }, theme == "system")
+            }
+            item {
+                Reveal(1) {
+                    GlassCard(Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(t("set_browser"), fontWeight = FontWeight.Medium)
+                                Muted(t("browser_d"), size = 12)
+                            }
+                            GlassToggle(browser) { Prefs.setBrowser(it) }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(t("set_cache"), Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                            GlassChip(t("clear"), {
+                                ctx.cacheDir.deleteRecursively()
+                                Toast.makeText(ctx, Strings.get(lang, "cache_done"), Toast.LENGTH_SHORT).show()
+                            })
+                        }
+                    }
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(t("set_browser"), color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                    Switch(browser, { Prefs.setBrowser(it) })
+            }
+            item { Reveal(2) { Muted(t("about"), size = 12) } }
+            item { Reveal(3) { Muted("MangaVault v3.0", size = 11) } }
+        }
+    }
+}
+
+// ================================================================ Sheets
+
+/** Bottom sheet shown while a link is analysed: orbiting rings + rotating status lines. */
+@Composable
+fun FindingSheet(url: String, onCancel: () -> Unit) {
+    var step by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) { delay(4000); if (step < 2) step++ }
+    }
+    SheetFrame(t("searching"), t("find_t"), onCancel) {
+        Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) { Orbit() }
+        androidx.compose.animation.AnimatedContent(step, label = "steps") { s ->
+            Muted(t(listOf("find_1", "find_2", "find_3")[s]), Modifier.fillMaxWidth(), 14)
+        }
+        Spacer(Modifier.height(12.dp))
+        UrlBox(url)
+    }
+}
+
+@Composable
+private fun Orbit() {
+    val t = rememberInfiniteTransition(label = "orbit")
+    val a by t.animateFloat(0f, 360f, infiniteRepeatable(tween(2600, easing = LinearEasing)), label = "a")
+    val b by t.animateFloat(360f, 0f, infiniteRepeatable(tween(3800, easing = LinearEasing)), label = "b")
+    val pulse by t.animateFloat(0.85f, 1.1f, infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "p")
+    Canvas(Modifier.size(130.dp)) {
+        val c = center
+        val r = size.minDimension / 2
+        drawCircle(Brush.radialGradient(listOf(Pink.copy(alpha = 0.45f), Color.Transparent), c, r * pulse), r * pulse, c)
+        androidx.compose.ui.graphics.drawscope.rotate(a, c) {
+            drawArc(Brush.sweepGradient(listOf(Color.Transparent, Violet, Pink), c), 0f, 260f, false,
+                androidx.compose.ui.geometry.Offset(c.x - r * 0.8f, c.y - r * 0.8f), androidx.compose.ui.geometry.Size(r * 1.6f, r * 1.6f),
+                style = Stroke(r * 0.07f, cap = StrokeCap.Round))
+        }
+        androidx.compose.ui.graphics.drawscope.rotate(b, c) {
+            drawArc(Brush.sweepGradient(listOf(Color.Transparent, Peach, Mint), c), 0f, 200f, false,
+                androidx.compose.ui.geometry.Offset(c.x - r * 0.55f, c.y - r * 0.55f), androidx.compose.ui.geometry.Size(r * 1.1f, r * 1.1f),
+                style = Stroke(r * 0.06f, cap = StrokeCap.Round))
+        }
+        drawCircle(Brush.linearGradient(listOf(Violet, Pink, Peach)), r * 0.2f * pulse, c)
+    }
+}
+
+/** Visible browser where the user passes a site's human check themselves; cookies are shared with the downloader. */
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun VerifySheet(url: String, onDone: () -> Unit, onClose: () -> Unit) {
+    SheetFrame(t("verify_tag"), t("verify_t"), onClose, fill = true) {
+        Muted(t("verify_d"), size = 13)
+        Spacer(Modifier.height(10.dp))
+        AndroidView(
+            factory = { c ->
+                android.webkit.WebView(c).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.userAgentString = app.mangavault.source.BROWSER_UA
+                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    webViewClient = android.webkit.WebViewClient()
+                    loadUrl(url)
                 }
-                Chip(t("set_cache"), {
-                    ctx.cacheDir.deleteRecursively()
-                    Toast.makeText(ctx, Strings.get(lang, "cache_done"), Toast.LENGTH_SHORT).show()
-                })
+            },
+            onRelease = { it.destroy() },
+            modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(22.dp)),
+        )
+        Spacer(Modifier.height(12.dp))
+        GradientButton(t("verify_done"), {
+            android.webkit.CookieManager.getInstance().flush()
+            onDone()
+        })
+    }
+}
+
+@Composable
+private fun UrlBox(url: String) {
+    Row(Modifier.fillMaxWidth().glass(CircleShape).padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(9.dp).clip(CircleShape).background(AccentH))
+        Spacer(Modifier.width(12.dp))
+        Text(url, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, style = TextStyle(textDirection = TextDirection.Ltr))
+    }
+}
+
+@Composable
+private fun SheetFrame(tag: String, title: String, onClose: () -> Unit, fill: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    val p = LocalPalette.current
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        val shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+        Column(
+            (if (fill) Modifier.fillMaxSize().padding(top = 48.dp) else Modifier.fillMaxWidth())
+                .clip(shape).background(p.sheet).border(1.dp, Brush.verticalGradient(listOf(p.stroke, Color.Transparent)), shape)
+                .navigationBarsPadding(),
+        ) {
+            Column(Modifier.padding(horizontal = 22.dp).padding(top = 12.dp, bottom = 22.dp).let { if (fill) it.weight(1f) else it }) {
+                Box(Modifier.align(Alignment.CenterHorizontally).width(42.dp).height(5.dp).clip(CircleShape).background(p.faint))
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Label(tag)
+                        Spacer(Modifier.height(4.dp))
+                        Text(title, fontSize = 24.sp, fontWeight = FontWeight.Medium)
+                    }
+                    Box(Modifier.size(44.dp).glass(CircleShape).bouncyClick(onClick = onClose), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Close, null, tint = p.text, modifier = Modifier.size(18.dp))
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                content()
             }
         }
-        Muted(t("about"), size = 13)
-        Muted("v2.0.0", size = 12)
     }
 }

@@ -46,4 +46,4 @@ Standalone app (Kotlin + Jetpack Compose) — no server. Built by `.github/workf
 `apk-latest` release. Sites behind a Cloudflare/CAPTCHA check can be used after the user passes the check once in the
 in-app browser ("Verify in browser"); the app does not bypass such checks or descramble protected images.
 
-Bundled fonts (SIL Open Font License): Archivo Black, Space Mono, Tajawal.
+Bundled fonts (SIL Open Font License): Poppins, Tajawal.
