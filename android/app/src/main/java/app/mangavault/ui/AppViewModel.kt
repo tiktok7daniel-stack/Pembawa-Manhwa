@@ -23,6 +23,8 @@ import app.mangavault.source.Sources
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class Screen { MAIN, RESULT, PROGRESS }
 enum class Tab { HOME, DOWNLOADS, SETTINGS }
@@ -49,7 +51,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loading = true
         parseJob = viewModelScope.launch {
             try {
-                val s = Sources.load(url, Prefs.lang.value, browserMode || Prefs.browserDefault.value)
+                // HTML parsing is CPU work; keep it off the UI thread (network already runs on IO).
+                val s = withContext(Dispatchers.Default) { Sources.load(url, Prefs.lang.value, browserMode || Prefs.browserDefault.value) }
                 series = s
                 selected = s.chapters.map { it.id }.toSet()
                 screen = Screen.RESULT

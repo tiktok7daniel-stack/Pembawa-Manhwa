@@ -154,7 +154,8 @@ class EndToEndTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             SystemClock.sleep(2500)
             screenshot("1-home")
-            scenario.onActivity { a -> a.vm.url = server.url("/manga/demo").toString(); a.vm.parse() }
+            val link = server.url("/manga/demo").toString() // resolving the mock host is network I/O: keep it off the UI thread
+            scenario.onActivity { a -> a.vm.url = link; a.vm.parse() }
             SystemClock.sleep(600)
             screenshot("2-finding")
             var screen: Screen? = null
