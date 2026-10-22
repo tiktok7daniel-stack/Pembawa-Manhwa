@@ -36,14 +36,14 @@ async function withRetry(fn, tries = 3) {
 }
 
 /** Downloads pages with limited concurrency, returns buffers in page order (null = failed). */
-async function downloadPages(urls, referer, onPage, isCancelled) {
+async function downloadPages(urls, referer, headers, onPage, isCancelled) {
   const out = new Array(urls.length).fill(null);
   let next = 0;
   const worker = async () => {
     while (next < urls.length && !isCancelled()) {
       const i = next++;
       try {
-        const { buf, type } = await withRetry(() => fetchImage(urls[i], referer));
+        const { buf, type } = await withRetry(() => fetchImage(urls[i], referer, headers));
         out[i] = { buf, ext: extFor(type, urls[i]) };
       } catch { /* leave null, counted as failed */ }
       onPage(out[i] !== null);
@@ -68,6 +68,7 @@ async function finalize(archive, output) {
 async function run(job, series, selected, mode, lang) {
   const adapter = pickAdapter(series.sourceUrl);
   const referer = adapter.referer || new URL(series.sourceUrl).origin + '/';
+  const imgHeaders = series.session ? { 'user-agent': series.session.userAgent, cookie: series.session.cookie } : {};
   const cancelled = () => job.status === 'cancelled';
   const base = safeName(series.title);
   const width = Math.max(3, String(selected.length).length);
@@ -84,9 +85,9 @@ async function run(job, series, selected, mode, lang) {
       const label = ch.number != null ? `Ch ${pad(ch.number.split('.')[0], 3)}${ch.number.includes('.') ? '.' + ch.number.split('.')[1] : ''}` : `Ch ${pad(idx + 1, width)}`;
       st.state = 'active';
       try {
-        const urls = await withRetry(() => adapter.getPages(ch, { lang }));
+        const urls = await withRetry(() => adapter.getPages(ch, { lang, session: series.session, forceBrowser: series.forceBrowser }));
         st.total = urls.length;
-        const pages = await downloadPages(urls, referer, (good) => { st.done++; if (!good) st.failedPages++; }, cancelled);
+        const pages = await downloadPages(urls, referer, imgHeaders, (good) => { st.done++; if (!good) st.failedPages++; }, cancelled);
         if (cancelled()) break;
         const good = pages.filter(Boolean);
         if (!good.length) throw new Error('no pages could be downloaded');

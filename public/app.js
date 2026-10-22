@@ -47,7 +47,7 @@
     const btn = $('parseBtn');
     btn.disabled = true; btn.querySelector('.spin').hidden = false; $('parseTxt').textContent = t('parsing');
     try {
-      const d = await api('/api/parse', { method: 'POST', body: { url: $('urlInput').value.trim(), lang: $('langSel').value } });
+      const d = await api('/api/parse', { method: 'POST', body: { url: $('urlInput').value.trim(), lang: $('langSel').value, browser: $('browserMode').checked } });
       stopPolling(); state.job = null; $('progress').hidden = true;
       state.token = d.token; state.chapters = d.chapters; state.selected = new Set(d.chapters.map((c) => c.id));
       $('cover').src = d.cover || ''; $('cover').hidden = !d.cover;

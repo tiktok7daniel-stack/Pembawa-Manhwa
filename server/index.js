@@ -46,11 +46,11 @@ const SERIES_TTL = 30 * 60_000;
 app.get('/api/info', (_req, res) => res.json({ sources: adapterNames(), maxChapters: LIMITS.maxChapters }));
 
 app.post('/api/parse', rateLimit(20), async (req, res) => {
-  const { url, lang = 'en' } = req.body || {};
+  const { url, lang = 'en', browser = false } = req.body || {};
   if (typeof url !== 'string' || url.length > 2000) throw httpError(400, 'Paste a series link');
   const u = await assertPublicUrl(url.trim());
   const adapter = pickAdapter(u.href);
-  const series = await adapter.getSeries(u.href, { lang: ['en', 'ar'].includes(lang) ? lang : 'en' });
+  const series = await adapter.getSeries(u.href, { lang: ['en', 'ar'].includes(lang) ? lang : 'en', browser: browser === true });
   const token = crypto.randomUUID();
   seriesCache.set(token, { ...series, sourceUrl: u.href, at: Date.now() });
   res.json({

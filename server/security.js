@@ -76,7 +76,7 @@ export async function safeFetch(url, { headers = {}, method = 'GET', body, timeo
 
 export async function fetchText(url, opts) {
   const { res, url: finalUrl } = await safeFetch(url, { maxBytes: 8 * 1024 * 1024, ...opts });
-  if (!res.ok) throw httpError(502, `Source answered ${res.status}`);
+  if (!res.ok) throw Object.assign(httpError(502, `Source answered ${res.status}`), { upstream: res.status });
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length > 8 * 1024 * 1024) throw httpError(413, 'Page too large');
   return { text: buf.toString('utf8'), url: finalUrl };
@@ -87,8 +87,8 @@ export async function fetchJson(url, opts) {
   try { return JSON.parse(text); } catch { throw httpError(502, 'Source returned invalid JSON'); }
 }
 
-export async function fetchImage(url, referer) {
-  const { res } = await safeFetch(url, { headers: { referer, accept: 'image/*,*/*;q=0.8' }, timeout: 30000 });
+export async function fetchImage(url, referer, extraHeaders = {}) {
+  const { res } = await safeFetch(url, { headers: { referer, accept: 'image/*,*/*;q=0.8', ...extraHeaders }, timeout: 30000 });
   if (!res.ok) throw httpError(502, `Image answered ${res.status}`);
   const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   const buf = Buffer.from(await res.arrayBuffer());

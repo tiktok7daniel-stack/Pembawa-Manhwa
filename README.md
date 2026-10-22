@@ -24,10 +24,14 @@ Docker: `docker build -t mangavault . && docker run -p 3000:3000 mangavault`
 ## Sources
 
 - **MangaDex** – via its official public API (`/title/<uuid>` links), English and Arabic chapters.
-- **Other sites** – generic adapter (`server/adapters/generic.js`): finds chapter links, Madara/WordPress
-  chapter lists, lazy-loaded images and script-embedded page lists. It cannot handle sites that need
-  JavaScript rendering, a login, or anti-bot checks (e.g. Cloudflare challenges); those fail with a clear error.
-  To support such a site, add an adapter in `server/adapters/` exposing `match`, `getSeries`, `getPages`.
+- **Any other site** – generic adapter (`server/adapters/generic.js`):
+  1. fast server-side fetch: chapter links, paginated lists, Madara/WordPress AJAX lists, lazy-loaded images, script-embedded page lists;
+  2. **automatic fallback to headless Chromium** (`server/browser.js`) when the page is built by JavaScript or the plain fetch is blocked: it waits out simple "checking your browser" screens, expands "load more" buttons, scrolls to trigger lazy loading, keeps only real page images (by rendered size) and reuses the session cookies for image downloads. The "Browser mode" checkbox forces this path.
+  Not possible: sites behind a login, a CAPTCHA/Turnstile challenge, or DRM-style image scrambling. They fail with a clear error.
+  For one-off special cases, add an adapter in `server/adapters/` exposing `match`, `getSeries`, `getPages`.
+
+Browser mode needs Chromium: the Docker image includes it; locally set `CHROMIUM_PATH` (or `PLAYWRIGHT_BROWSERS_PATH`).
+`BROWSER_CONCURRENCY` (default 2) limits parallel browser pages. Every request the browser makes goes through the same private-address check.
 
 ## Notes
 
