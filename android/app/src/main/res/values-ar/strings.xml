@@ -1,16 +1,8 @@
 <resources>
     <string name="app_name">MangaVault</string>
-    <string name="setup_title">اتصل بالخادم الخاص بك</string>
-    <string name="setup_desc">أدخل عنوان الخادم الذي يعمل عليه MangaVault، مثل https://mangavault.example.com أو 192.168.1.5:3000</string>
-    <string name="setup_hint">عنوان الخادم</string>
-    <string name="setup_save">حفظ وفتح</string>
-    <string name="setup_invalid">أدخل عنواناً صحيحاً</string>
-    <string name="error_title">تعذر الوصول إلى الخادم</string>
-    <string name="error_desc">تحقق من اتصال الإنترنت وعنوان الخادم.</string>
-    <string name="retry">إعادة المحاولة</string>
-    <string name="change_server">تغيير الخادم</string>
-    <string name="shortcut_change">تغيير الخادم</string>
-    <string name="download_started">جاري تحميل %1$s</string>
-    <string name="download_failed">تعذر بدء التحميل</string>
-    <string name="permission_needed">مطلوب إذن التخزين لحفظ الملفات</string>
+    <string name="channel_name">التنزيلات</string>
+    <string name="cancel">إلغاء</string>
+    <string name="notif_done">اكتمل التحميل</string>
+    <string name="notif_cancelled">تم الإلغاء</string>
+    <string name="notif_failed">فشل التحميل</string>
 </resources>

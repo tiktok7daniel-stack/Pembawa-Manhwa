@@ -1,0 +1,42 @@
+package app.mangavault.source
+
+import app.mangavault.net.HttpStatusException
+import java.io.IOException
+import java.net.URL
+
+object Sources {
+    fun normalize(raw: String): String {
+        var s = raw.trim()
+        if (s.isEmpty()) throw SourceException(Err.BAD_URL)
+        if (!s.contains("://")) s = "https://$s"
+        val u = try { URL(s) } catch (_: Exception) { throw SourceException(Err.BAD_URL) }
+        if (u.protocol != "http" && u.protocol != "https" || u.host.isNullOrBlank() || !u.host.contains('.')) throw SourceException(Err.BAD_URL)
+        return s
+    }
+
+    private inline fun <T> mapErrors(block: () -> T): T {
+        try {
+            return block()
+        } catch (e: SourceException) { throw e
+        } catch (e: HttpStatusException) { throw SourceException(Err.HTTP, e.code.toString())
+        } catch (e: IOException) { throw SourceException(Err.NETWORK)
+        } catch (e: IllegalArgumentException) { throw SourceException(Err.BAD_URL) }
+    }
+
+    suspend fun load(raw: String, lang: String, browser: Boolean): Series {
+        val url = normalize(raw)
+        return mapErrors {
+            if (MangaDexSource.matches(url)) MangaDexSource.getSeries(url, lang).copy(sourceUrl = url)
+            else GenericSource.getSeries(url, browser).copy(sourceUrl = url)
+        }
+    }
+
+    suspend fun pages(series: Series, chapter: Chapter): List<String> = mapErrors {
+        if (series.sourceName == "MangaDex") MangaDexSource.getPages(chapter)
+        else GenericSource.getPages(chapter, series.session, series.forceBrowser)
+    }
+
+    fun referer(series: Series): String =
+        if (series.sourceName == "MangaDex") "https://mangadex.org/"
+        else try { URL(series.sourceUrl).let { "${it.protocol}://${it.host}/" } } catch (_: Exception) { "" }
+}
