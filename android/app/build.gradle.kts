@@ -11,16 +11,31 @@ android {
         applicationId = "app.mangavault"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "4.0.0"
+        // Each CI build gets a higher number so it installs as an update over the previous one.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 100 + build
+        versionName = "4.0.$build"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // One fixed key for every build: Android only installs an update when the signature matches the installed app.
+    // It lives in the repo because the APK is side-loaded; use a private key (kept out of git) to publish on a store.
+    signingConfigs {
+        create("vault") {
+            storeFile = file("mangavault.keystore")
+            storePassword = "mangavault"
+            keyAlias = "mangavault"
+            keyPassword = "mangavault"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the APK installs directly; swap for your own keystore to publish on a store.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("vault")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("vault")
         }
     }
     compileOptions {

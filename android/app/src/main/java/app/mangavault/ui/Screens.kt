@@ -715,7 +715,10 @@ fun SettingsScreen() {
                 }
             }
             item { Muted(t("about"), Modifier.padding(horizontal = 4.dp), 12) }
-            item { Text("MANGAVAULT · v4.0", Modifier.padding(horizontal = 4.dp), color = LocalPalette.current.faint, fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp) }
+            item {
+                val version = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (_: Exception) { "" } }
+                Text("MANGAVAULT · v$version", Modifier.padding(horizontal = 4.dp), color = LocalPalette.current.faint, fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 2.sp)
+            }
         }
     }
 }
