@@ -88,6 +88,14 @@ object DownloadState {
         }
     }
 
+    /** A page that failed earlier came through on a later attempt. */
+    fun recover(idx: Int, bytes: Long) {
+        job.update { j ->
+            if (j == null || idx !in j.chapters.indices) j
+            else j.copy(bytes = j.bytes + bytes, chapters = j.chapters.toMutableList().also { val c = it[idx]; it[idx] = c.copy(failedPages = maxOf(0, c.failedPages - 1)) })
+        }
+    }
+
     fun update(f: (JobState) -> JobState) { job.update { if (it == null) null else f(it) } }
 
     fun finish(status: JobStatus, f: (JobState) -> JobState = { it }) {

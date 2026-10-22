@@ -120,7 +120,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val s = series ?: return
         if (isRunning) return
         val j = DownloadState.job.value ?: return
-        val again = j.chapters.filter { it.state == CState.FAILED || it.state == CState.QUEUED || it.state == CState.ACTIVE }.map { it.chapter }
+        val again = j.chapters.filter { it.state != CState.DONE }.map { it.chapter }
         val chosen = again.ifEmpty { j.chapters.map { it.chapter } }
         JobHolder.pending = JobRequest(s, chosen, j.mode, j.format)
         DownloadState.start(s.title, chosen, j.mode, j.format)

@@ -104,16 +104,25 @@ object GenericSource {
         throw last ?: SourceException(Err.NO_CHAPTERS)
     }
 
-    private val pageParam = Regex("[?&](page|p|pg|paged|chapter_page|cp|start)=(\\d+)", IC)
-    private val pagePath = Regex("/page/\\d+/?$", IC)
+    /** "?page=2", "?chapter_page=2", "?pg=2", "?p=2", "?start=20"… — group 1 is everything before the number. */
+    private val pageParam = Regex("([?&](?:[a-z_-]*page[a-z_-]*|p|pg|paged|cp|start|offset)=)(\\d+)", IC)
+    private val pagePath = Regex("(/page/)(\\d+)(/?)$", IC)
     private val rangeText = Regex("^\\s*\\d+\\s*[-–~]\\s*\\d+\\s*$")
-    private val notFound = Regex("404|not found|page not found|غير موجود|الصفحة غير", IC)
+    private val pagerText = Regex("^\\s*(\\d{1,4}|next|next page|older|›|»|>|→|التالي|الصفحة التالية|last|الأخير|الاخيرة)\\s*[›»>→]?\\s*$", IC)
+    private val notFound = Regex("404 not found|error 404|page not found|not found|غير موجود|الصفحة غير", IC)
+    private const val PAGER = ".pagination a, .pager a, .page-numbers, [class*=pagin] a, [class*=pager] a, ul.pages a, .paging a, .wp-pagenavi a"
 
-    /** Links to further pages of the same chapter list: ?page=2, /page/2, "Next", "1-100" range tabs/selects. */
+    /** Links to further pages of the same chapter list: ?page=2, /page/2, "Next", numbered pager links, "1-100" range tabs/selects. */
     private fun listPages(doc: Document, base: String): List<String> {
         val out = LinkedHashSet<String>()
         val basePath = try { URL(base).path.trimEnd('/') } catch (_: Exception) { return emptyList() }
-        doc.selectFirst(NEXT)?.absUrl("href")?.let { if (it.isNotBlank()) out.add(it) }
+        doc.selectFirst(NEXT)?.absUrl("href")?.let { if (it.isNotBlank() && sameSite(it, base)) out.add(it.substringBefore('#')) }
+        for (el in doc.select(PAGER)) {
+            val link = el.absUrl("href")
+            if (link.startsWith("http") && sameSite(link, base) && pagerText.matches(el.text()) && link.substringBefore('#') != base.substringBefore('#')) {
+                out.add(link.substringBefore('#'))
+            }
+        }
         for (el in doc.select("a[href], option[value]")) {
             val isOption = el.tagName() == "option"
             val link = if (isOption) el.absUrl("value") else el.absUrl("href")
@@ -124,6 +133,30 @@ object GenericSource {
             val range = rangeText.matches(el.text())
             if (paged || (range && path != basePath) || (isOption && range)) out.add(link.substringBefore('#'))
         }
+        return expandNumbered(out.toList())
+    }
+
+    /**
+     * A pager usually shows only a few numbers ("1 2 3 … 63"). When the links follow one pattern, every page from 2 to
+     * the highest number is generated right away, so the whole list is fetched in parallel instead of hop by hop.
+     */
+    private fun expandNumbered(links: List<String>): List<String> {
+        val out = LinkedHashSet(links)
+        val groups = HashMap<String, Int>()
+        for (l in links) {
+            val m = pageParam.find(l)
+            if (m != null && !m.groupValues[1].contains("start", true) && !m.groupValues[1].contains("offset", true)) {
+                val key = l.substring(0, m.range.first) + m.groupValues[1] + "{n}" + l.substring(m.range.last + 1)
+                groups[key] = maxOf(groups[key] ?: 0, m.groupValues[2].toInt())
+                continue
+            }
+            val p = pagePath.find(l)
+            if (p != null) {
+                val key = l.substring(0, p.range.first) + "/page/{n}" + p.groupValues[3] + l.substring(p.range.last + 1)
+                groups[key] = maxOf(groups[key] ?: 0, p.groupValues[2].toInt())
+            }
+        }
+        for ((tpl, max) in groups) for (n in 2..minOf(max, 500)) out.add(tpl.replace("{n}", n.toString()))
         return out.toList()
     }
 
@@ -132,27 +165,43 @@ object GenericSource {
         var list = first.list
         val visited = mutableSetOf(firstUrl.substringBefore('#'))
         var frontier = listPages(first.doc, firstUrl).filter { visited.add(it) }
-        val gate = Semaphore(6)
+        val gate = Semaphore(8)
         var fetched = 0
-        while (frontier.isNotEmpty() && fetched < 60) {
-            val batch = frontier.take(60 - fetched)
+        // Chapters of this series share a folder (".../lookism/chapter-628"); anything outside it came from another series.
+        val folder = first.list.map { it.href.trimEnd('/').substringBeforeLast('/') }.groupingBy { it }.eachCount().maxByOrNull { it.value }
+            ?.takeIf { it.value * 10 >= first.list.size * 6 && first.list.size >= 2 }?.key
+        while (frontier.isNotEmpty() && fetched < 500) {
+            val batch = frontier.take(500 - fetched)
             fetched += batch.size
             val pages = batch.map { u ->
                 async {
                     gate.withPermit {
-                        try { Http.text(u, headers).let { readSeries(it.body, it.url) } } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                        try { retryList { Http.text(u, headers) }.let { readSeries(it.body, it.url) } } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
                     }
                 }
             }.awaitAll()
             val next = ArrayList<String>()
             for (f in pages) {
                 if (f == null) continue
-                list = list + f.list
+                list = list + if (folder == null) f.list else f.list.filter { it.href.startsWith("$folder/") || it.href == folder }
                 listPages(f.doc, firstUrl).forEach { if (visited.add(it)) next.add(it) }
             }
             frontier = next
         }
         list
+    }
+
+    /** List pages are fetched in bulk; a throttled one waits and tries again instead of leaving a hole in the list. */
+    private suspend fun <T> retryList(block: suspend () -> T): T {
+        var last: Exception? = null
+        for (i in 1..3) {
+            try { return block() } catch (e: CancellationException) { throw e } catch (e: HttpStatusException) {
+                last = e
+                if (e.code != 429 && e.code < 500) throw e
+                kotlinx.coroutines.delay(maxOf(e.retryAfterMs, 1200L * i))
+            } catch (e: Exception) { last = e; kotlinx.coroutines.delay(600L * i) }
+        }
+        throw last ?: java.io.IOException("failed")
     }
 
     private fun wholeNumber(r: Raw): Int? = r.number?.toDoubleOrNull()?.takeIf { it == Math.floor(it) && it >= 0 }?.toInt()
@@ -164,7 +213,7 @@ object GenericSource {
     }
 
     private suspend fun exists(url: String, headers: Map<String, String>): Boolean = try {
-        val r = Http.text(url, headers)
+        val r = retryList { Http.text(url, headers) }
         val samePath = URL(r.url).path.trimEnd('/') == URL(url).path.trimEnd('/')
         samePath && !notFound.containsMatchIn(Jsoup.parse(r.body).title())
     } catch (_: Exception) { false }
@@ -178,19 +227,19 @@ object GenericSource {
         if (numbered.size < 2) return list
         fun template(r: Raw): String? {
             val n = wholeNumber(r).toString()
-            val hits = Regex("(?<!\\d)" + n + "(?!\\d)").findAll(r.href).toList()
-            if (hits.size != 1) return null
-            val m = hits[0].range
-            return r.href.substring(0, m.first) + "{n}" + r.href.substring(m.last + 1)
+            val re = Regex("(?<!\\d)" + n + "(?!\\d)")
+            if (!re.containsMatchIn(r.href)) return null
+            return re.replace(r.href, "{n}")
         }
         val best = numbered.mapNotNull { template(it) }.groupingBy { it }.eachCount().maxByOrNull { it.value } ?: return list
         if (best.value < 2 || best.value < numbered.size * 0.8) return list
         val have = numbered.mapNotNull { wholeNumber(it) }.toSet()
         val missing = (1 until have.max()).filter { it !in have }
         if (missing.isEmpty() || missing.size > 5000) return list
-        val probes = listOf(missing.first(), missing[missing.size / 2], missing.last()).distinct()
+        val probes = listOf(missing.first(), missing[missing.size / 4], missing[missing.size / 2], missing[missing.size * 3 / 4], missing.last()).distinct()
         val found = coroutineScope { probes.map { n -> async { exists(best.key.replace("{n}", n.toString()), headers) } }.awaitAll() }
-        if (found.any { !it }) return list
+        // Chapter 1 and the newest gap must exist; a single odd hole in between (a skipped number) is fine.
+        if (!found.first() || !found.last() || found.count { it } * 3 < probes.size * 2) return list
         return list + missing.map { Raw(best.key.replace("{n}", it.toString()), "", it.toString()) }
     }
 
@@ -205,13 +254,23 @@ object GenericSource {
                 val f = readSeries(r.body, r.url)
                 var list = f.list
                 // Madara (WordPress) themes load the chapter list through ajax.
-                if (Regex("wp-manga|madara", IC).containsMatchIn(r.body) && list.size < 3) {
+                if (Regex("wp-manga|madara", IC).containsMatchIn(r.body)) {
+                    val xhr = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to r.url)
                     try {
                         val ajax = URL(URL(r.url.trimEnd('/') + "/"), "ajax/chapters/").toString()
-                        val a = Http.text(ajax, mapOf("X-Requested-With" to "XMLHttpRequest"), "POST", FormBody.Builder().build())
+                        val a = Http.text(ajax, xhr, "POST", FormBody.Builder().build())
                         val extra = extractChapters(Jsoup.parse(a.body, r.url), r.url)
                         if (extra.size > list.size) list = extra
-                    } catch (_: Exception) { /* keep what the page showed */ }
+                    } catch (_: Exception) { /* older Madara: try admin-ajax below */ }
+                    val id = f.doc.selectFirst("#manga-chapters-holder[data-id], [data-post-id], input.rating-post-id")
+                        ?.let { it.attr("data-id").ifBlank { it.attr("data-post-id") }.ifBlank { it.attr("value") } }
+                    if (!id.isNullOrBlank()) try {
+                        val admin = URL(URL(r.url), "/wp-admin/admin-ajax.php").toString()
+                        val body = FormBody.Builder().add("action", "manga_get_chapters").add("manga", id).build()
+                        val a = Http.text(admin, xhr, "POST", body)
+                        val extra = extractChapters(Jsoup.parse(a.body, r.url), r.url)
+                        if (extra.size > list.size) list = extra
+                    } catch (_: Exception) { /* keep what we have */ }
                 }
                 f.list = list
                 f.list = crawlListPages(f, r.url, emptyMap())

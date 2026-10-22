@@ -379,6 +379,11 @@ private fun SeriesHero(s: Series) {
                     Text(t("chapters").uppercase(), Modifier.padding(bottom = 5.dp), color = p.muted, fontFamily = display(),
                         fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = 1.5.sp)
                 }
+                val firstN = s.chapters.firstOrNull()?.number
+                val lastN = s.chapters.lastOrNull()?.number
+                if (firstN != null && lastN != null) {
+                    Text("${t("chapter")} $firstN → $lastN", color = Mana, fontFamily = display(), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
             }
         }
     }
@@ -477,7 +482,7 @@ fun ProgressScreen(vm: AppViewModel) {
             items(j.chapters, key = { it.chapter.id }) { c -> ProgressRow(c, word) }
         }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val failed = j.chapters.count { it.state == CState.FAILED }
+            val failed = j.chapters.count { it.state == CState.FAILED || it.state == CState.PARTIAL }
             when (j.status) {
                 JobStatus.RUNNING -> GhostButton(t("cancel"), { vm.cancelDownload() }, Modifier.fillMaxWidth(), Ico.Close, Danger)
                 JobStatus.DONE -> {
@@ -563,9 +568,33 @@ private fun ProgressCore(j: JobState, running: Boolean, speed: Double, eta: Long
             Spacer(Modifier.height(12.dp))
             Muted(j.error, size = 12)
         }
+        if (j.status == JobStatus.DONE) {
+            // Exactness report: every chosen chapter and every page, or precisely what is missing.
+            val failedCh = j.chapters.count { it.state == CState.FAILED }
+            val missingPages = j.chapters.filter { it.state == CState.PARTIAL }.sumOf { it.failedPages }
+            val saved = j.chapters.filter { it.state == CState.DONE || it.state == CState.PARTIAL }.sumOf { it.total - it.failedPages }
+            val complete = failedCh == 0 && missingPages == 0
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(PanelShape).background((if (complete) Success else Amber).copy(alpha = 0.10f))
+                    .border(1.dp, (if (complete) Success else Amber).copy(alpha = 0.4f), PanelShape).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(if (complete) Ico.Check else Ico.Alert, null, tint = if (complete) Success else Amber, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    if (complete) "${t("verified")}: ${j.chapters.size} ${t("chapters")} · $saved ${t("pages_word")}"
+                    else listOfNotNull(
+                        if (failedCh > 0) "$failedCh ${t("ch_failed")}" else null,
+                        if (missingPages > 0) "$missingPages ${t("pages_missing")}" else null,
+                    ).joinToString(" · "),
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                )
+            }
+        }
         if (!running) {
             Spacer(Modifier.height(10.dp))
-            Muted("${t("elapsed")}: ${fmtTime(elapsed)}", size = 12)
+            Muted("${t("elapsed")}: ${fmtTime(elapsed)} · ${j.format.name}", size = 12)
         }
     }
 }
@@ -620,8 +649,8 @@ private fun ProgressRow(c: ChapterProgress, word: String) {
             Text(right.uppercase(), color = color, fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp)
         }
         if (c.state == CState.ACTIVE) LineBar(frac)
-        if (c.state == CState.FAILED && !c.error.isNullOrBlank()) {
-            Text(c.error, Modifier.padding(start = 48.dp, end = 12.dp, bottom = 10.dp), color = Danger.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 2,
+        if ((c.state == CState.FAILED || c.state == CState.PARTIAL) && !c.error.isNullOrBlank()) {
+            Text(c.error, Modifier.padding(start = 48.dp, end = 12.dp, bottom = 10.dp), color = (if (c.state == CState.PARTIAL) Amber else Danger).copy(alpha = 0.9f), fontSize = 11.sp, maxLines = 2,
                 style = TextStyle(textDirection = TextDirection.Ltr))
         }
     }

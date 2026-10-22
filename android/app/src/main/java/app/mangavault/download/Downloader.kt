@@ -1,6 +1,11 @@
 package app.mangavault.download
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Canvas
+import android.graphics.Rect
 import app.mangavault.data.HistoryItem
 import app.mangavault.data.Prefs
 import app.mangavault.net.Http
@@ -90,7 +95,7 @@ object Downloader {
 
     private suspend fun fetchOnce(url: String, referer: String?, headers: Map<String, String>): Page {
         val h = HashMap(headers)
-        h["Accept"] = "image/avif,image/webp,image/*,*/*;q=0.8"
+        h["Accept"] = "image/jpeg,image/png,image/webp;q=0.9,image/*;q=0.8,*/*;q=0.5"
         if (referer != null) h["Referer"] = referer else h.remove("Referer")
         val jar = browserCookie(url)
         if (jar != null) h["Cookie"] = listOfNotNull(h["Cookie"]?.ifBlank { null }, jar).joinToString("; ")
@@ -156,6 +161,33 @@ object Downloader {
         return pages to lastError
     }
 
+    /**
+     * Second chance for pages that failed in the parallel burst: one at a time, with pauses, so a throttling host
+     * lets them through. A chapter is only reported incomplete after this.
+     */
+    private suspend fun retryMissing(
+        idx: Int, urls: List<String>, pages: List<PageFile?>, dir: File, referers: List<String?>, headers: Map<String, String>,
+    ): List<PageFile?> {
+        val out = pages.toMutableList()
+        for (round in 1..2) {
+            for (n in out.indices) {
+                if (out[n] != null) continue
+                delay(700L * round)
+                try {
+                    val p = fetchPage(urls[n], referers, headers)
+                    val f = File(dir, "r$n.${p.ext}")
+                    withContext(Dispatchers.IO) { f.writeBytes(p.bytes) }
+                    out[n] = PageFile(f, p.ext)
+                    DownloadState.recover(idx, p.bytes.size.toLong())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) { /* next round */ }
+            }
+            if (out.none { it == null }) break
+        }
+        return out
+    }
+
     /** Reads the chapter's page list, then pulls every page at once (bounded by [pageGate]) into [dir]. */
     private suspend fun fetchChapter(
         idx: Int, ch: Chapter, series: Series, dir: File, referer: String, headers: Map<String, String>, pageGate: Semaphore,
@@ -174,6 +206,7 @@ object Downloader {
             DownloadState.update { it.copy(pagesTotal = it.pagesTotal + list.size) }
             val r = downloadAll(idx, list, dir, referers, headers, pageGate, "a")
             pages = r.first; pageError = r.second
+            if (pages.any { it != null } && pages.any { it == null }) pages = retryMissing(idx, list, pages, dir, referers, headers)
         }
         // Nothing usable from the plain page read: open the chapter in the real browser engine and take what it shows.
         if (pages.none { it != null } && !series.forceBrowser && !Sources.isMangaDex(series)) {
@@ -183,6 +216,7 @@ object Downloader {
                 DownloadState.update { it.copy(pagesTotal = it.pagesTotal + again.size) }
                 val r = downloadAll(idx, again, dir, referers, headers, pageGate, "b")
                 pages = r.first; pageError = r.second ?: pageError
+                if (pages.any { it != null } && pages.any { it == null }) pages = retryMissing(idx, again, pages, dir, referers, headers)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -233,31 +267,67 @@ object Downloader {
             val bytes = pf.file.readBytes()
             val info = Jpeg.info(bytes)
             if (info != null) { pdf.addJpeg(bytes, info); return true }
-            val jpeg = toJpeg(bytes) ?: return false
-            pdf.addJpeg(jpeg.first, jpeg.second)
+            val slices = toJpeg(bytes) ?: return false
+            pdf.addStack(slices)
             return true
         }
         override fun close(info: String?) = pdf.close()
 
-        /** PNG / WebP / GIF / AVIF pages are re-encoded once as high-quality JPEG on a white background. */
-        private fun toJpeg(bytes: ByteArray): Pair<ByteArray, JpegInfo>? = try {
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            var sample = 1
-            while (bounds.outWidth / sample > 2000) sample *= 2
-            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-            val src = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-            if (src == null) null else {
-                val flat = android.graphics.Bitmap.createBitmap(src.width, src.height, android.graphics.Bitmap.Config.ARGB_8888)
-                android.graphics.Canvas(flat).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(src, 0f, 0f, null) }
-                src.recycle()
-                val out = java.io.ByteArrayOutputStream()
-                flat.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
-                val info = JpegInfo(flat.width, flat.height, 3)
-                flat.recycle()
-                out.toByteArray() to info
+        /**
+         * Any page that is not a plain JPEG (PNG, WebP, GIF, AVIF, CMYK/12-bit JPEG…) is re-encoded as high-quality JPEG on
+         * white. Long strips are cut into slices so even a 30000-pixel page never needs one huge bitmap.
+         */
+        private fun toJpeg(bytes: ByteArray): List<Pair<ByteArray, JpegInfo>>? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val w0 = bounds.outWidth
+            val h0 = bounds.outHeight
+            for (extra in intArrayOf(1, 2, 4)) {
+                var sample = extra
+                if (w0 > 0) while (w0 / sample > 1800) sample *= 2
+                val out = try {
+                    if (w0 > 0 && h0 > 0) sliced(bytes, w0, h0, sample) ?: whole(bytes, sample) else whole(bytes, sample)
+                } catch (_: Throwable) { null }
+                if (!out.isNullOrEmpty()) return out
             }
-        } catch (_: Throwable) { null }
+            return null
+        }
+
+        private fun encode(bmp: Bitmap): Pair<ByteArray, JpegInfo> {
+            val flat = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+            Canvas(flat).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(bmp, 0f, 0f, null) }
+            val out = java.io.ByteArrayOutputStream()
+            flat.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            val info = JpegInfo(flat.width, flat.height, 3)
+            flat.recycle()
+            return out.toByteArray() to info
+        }
+
+        /** Decodes the page band by band (needs BitmapRegionDecoder support: JPEG, PNG, WebP, HEIF). */
+        @Suppress("DEPRECATION")
+        private fun sliced(bytes: ByteArray, w: Int, h: Int, sample: Int): List<Pair<ByteArray, JpegInfo>>? {
+            val dec = try { BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false) } catch (_: Throwable) { null } ?: return null
+            try {
+                val band = 2048 * sample
+                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                val out = ArrayList<Pair<ByteArray, JpegInfo>>()
+                var y = 0
+                while (y < h) {
+                    val bmp = dec.decodeRegion(Rect(0, y, w, minOf(h, y + band)), opts) ?: return null
+                    out.add(encode(bmp))
+                    bmp.recycle()
+                    y += band
+                }
+                return out
+            } finally {
+                dec.recycle()
+            }
+        }
+
+        private fun whole(bytes: ByteArray, sample: Int): List<Pair<ByteArray, JpegInfo>>? {
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+            return try { listOf(encode(bmp)) } finally { bmp.recycle() }
+        }
     }
 
     private fun packer(format: Format, out: java.io.OutputStream): Packer = if (format == Format.PDF) PdfPacker(out) else ZipPacker(out)
@@ -336,8 +406,10 @@ object Downloader {
                             }
                         }
                         ok++
-                        val partial = good < fetched.pages.size
-                        DownloadState.chapter(idx) { it.copy(state = if (partial) CState.PARTIAL else CState.DONE) }
+                        val missing = fetched.pages.size - good
+                        DownloadState.chapter(idx) {
+                            it.copy(state = if (missing > 0) CState.PARTIAL else CState.DONE, failedPages = missing, error = if (missing > 0) "$missing / ${fetched.pages.size} pages missing" else null)
+                        }
                     } catch (e: CancellationException) {
                         target?.abort()
                         throw e

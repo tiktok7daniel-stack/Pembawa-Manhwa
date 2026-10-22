@@ -74,26 +74,43 @@ class PdfWriter(out: OutputStream) : Closeable {
     /** The next page added starts a chapter with this title in the PDF's bookmarks. */
     fun bookmark(title: String) { pendingMark = title }
 
-    fun addJpeg(bytes: ByteArray, info: JpegInfo) {
-        val img = next++
+    fun addJpeg(bytes: ByteArray, info: JpegInfo) = addStack(listOf(bytes to info))
+
+    /**
+     * One page made of horizontal slices stacked top to bottom (all the same width). Very long strips are decoded and
+     * stored slice by slice so they never need one huge bitmap, but they still read as a single page.
+     */
+    fun addStack(slices: List<Pair<ByteArray, JpegInfo>>) {
+        require(slices.isNotEmpty())
+        val width = slices.maxOf { it.second.width }
+        val height = slices.sumOf { it.second.height }
+        val imgs = slices.map { (bytes, info) ->
+            val id = next++
+            val cs = when (info.components) { 1 -> "/DeviceGray"; 4 -> "/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]"; else -> "/DeviceRGB" }
+            begin(id)
+            w("<< /Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height} /ColorSpace $cs " +
+                "/BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.size} >>\nstream\n")
+            os.write(bytes)
+            w("\nendstream\nendobj\n")
+            id
+        }
         val content = next++
         val page = next++
-        val cs = when (info.components) { 1 -> "/DeviceGray"; 4 -> "/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]"; else -> "/DeviceRGB" }
-        begin(img)
-        w("<< /Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height} /ColorSpace $cs " +
-            "/BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.size} >>\nstream\n")
-        os.write(bytes)
-        w("\nendstream\nendobj\n")
-
         // 96 dpi; very long webtoon strips are scaled to stay under the 14400-unit page limit many viewers enforce.
-        val scale = minOf(0.75, 14400.0 / info.height, 14400.0 / info.width)
-        val pw = num(info.width * scale)
-        val ph = num(info.height * scale)
-        val draw = "q $pw 0 0 $ph 0 0 cm /Im0 Do Q"
+        val scale = minOf(0.75, 14400.0 / height, 14400.0 / width)
+        val pw = num(width * scale)
+        val ph = num(height * scale)
+        val draw = StringBuilder()
+        var top = height.toDouble()
+        slices.forEachIndexed { i, (_, info) ->
+            top -= info.height
+            draw.append("q ${num(info.width * scale)} 0 0 ${num(info.height * scale)} 0 ${num(top * scale)} cm /Im$i Do Q\n")
+        }
+        val res = imgs.withIndex().joinToString(" ") { "/Im${it.index} ${it.value} 0 R" }
         begin(content)
         w("<< /Length ${draw.length} >>\nstream\n$draw\nendstream\nendobj\n")
         begin(page)
-        w("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $pw $ph] /Resources << /XObject << /Im0 $img 0 R >> >> /Contents $content 0 R >>\nendobj\n")
+        w("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $pw $ph] /Resources << /XObject << $res >> >> /Contents $content 0 R >>\nendobj\n")
         pages.add(page)
         pendingMark?.let { marks.add(it to page) }
         pendingMark = null
