@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.mangavault.data.Prefs
 import app.mangavault.download.DownloadState
 import app.mangavault.download.Downloader
+import app.mangavault.download.Format
 import app.mangavault.download.JobRequest
 import app.mangavault.download.JobStatus
 import app.mangavault.download.Mode
@@ -143,6 +144,50 @@ class EndToEndTest {
         assertEquals(job.error, JobStatus.DONE, job.status)
         assertTrue(job.chapters.all { it.state == app.mangavault.download.CState.DONE })
         assertEquals(20, zipNames(Prefs.history.value.first().uri!!).count { it.endsWith(".png") })
+    }
+
+    @Test
+    fun exportsOnePdfThatAndroidCanOpen() = runBlocking {
+        val series = Sources.load(server.url("/manga/demo").toString(), "en", false)
+        Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SINGLE, Format.PDF))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        val h = Prefs.history.value.first()
+        assertTrue(h.path, h.path.endsWith("Demo Series.pdf"))
+        val uri = Uri.parse(h.uri!!)
+        val text = String(ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() }, Charsets.ISO_8859_1)
+        assertTrue(text.startsWith("%PDF"))
+        assertEquals(6, Regex("/Title <FEFF").findAll(text).count()) // one bookmark per chapter
+        // The system PDF renderer must accept the file and see every page.
+        ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
+            android.graphics.pdf.PdfRenderer(fd).use { r -> assertEquals(18, r.pageCount) }
+        }
+    }
+
+    @Test
+    fun exportsOneZipWithAFolderPerChapter() = runBlocking {
+        val series = Sources.load(server.url("/manga/demo").toString(), "en", false)
+        Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SINGLE, Format.ZIP))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        val h = Prefs.history.value.first()
+        assertTrue(h.path, h.path.endsWith("Demo Series.zip"))
+        val names = zipNames(h.uri!!)
+        assertEquals(18, names.count { it.endsWith(".png") })
+        assertTrue(names.toString(), names.contains("Ch 001/001.png") && names.contains("Ch 006/003.png"))
+    }
+
+    @Test
+    fun exportsOnePdfPerChapter() = runBlocking {
+        val series = Sources.load(server.url("/manga/demo").toString(), "en", false)
+        Downloader.run(ctx, JobRequest(series, series.chapters.take(2), Mode.PER_CHAPTER, Format.PDF))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        val h = Prefs.history.value.first()
+        assertEquals(2, h.files)
+        ctx.contentResolver.openFileDescriptor(Uri.parse(h.uri!!), "r")!!.use { fd ->
+            android.graphics.pdf.PdfRenderer(fd).use { r -> assertEquals(3, r.pageCount) }
+        }
     }
 
     @Test

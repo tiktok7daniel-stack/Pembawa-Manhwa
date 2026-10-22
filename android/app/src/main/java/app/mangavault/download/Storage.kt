@@ -20,13 +20,13 @@ class OutputTarget(val stream: OutputStream, private val onFinish: () -> SavedIn
 
 /** Creates files in Download/MangaVault/<series>/ (MediaStore on Android 10+, plain files before). */
 object Storage {
-    fun open(ctx: Context, folder: String, name: String): OutputTarget {
+    fun open(ctx: Context, folder: String, name: String, mime: String = "application/octet-stream"): OutputTarget {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = ctx.contentResolver
             val rel = "${Environment.DIRECTORY_DOWNLOADS}/MangaVault/$folder"
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                put(MediaStore.Downloads.MIME_TYPE, mime)
                 put(MediaStore.Downloads.RELATIVE_PATH, rel)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }

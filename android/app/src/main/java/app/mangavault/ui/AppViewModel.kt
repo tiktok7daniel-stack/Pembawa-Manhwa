@@ -15,6 +15,7 @@ import app.mangavault.download.DownloadState
 import app.mangavault.download.JobHolder
 import app.mangavault.download.JobRequest
 import app.mangavault.download.JobStatus
+import app.mangavault.download.Format
 import app.mangavault.download.Mode
 import app.mangavault.source.Chapter
 import app.mangavault.source.Err
@@ -39,6 +40,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var series by mutableStateOf<Series?>(null)
     var selected by mutableStateOf(setOf<String>())
     var mode by mutableStateOf(Mode.SINGLE)
+    var format by mutableStateOf(Format.values().firstOrNull { it.name == Prefs.format.value } ?: Format.CBZ)
     var screen by mutableStateOf(Screen.MAIN)
     var tab by mutableStateOf(Tab.HOME)
     var verifyUrl by mutableStateOf<String?>(null)
@@ -70,6 +72,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    fun pickFormat(f: Format) { format = f; Prefs.setFormat(f.name) }
 
     fun cancelParse() { parseJob?.cancel(); loading = false }
 
@@ -103,8 +107,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (isRunning) { screen = Screen.PROGRESS; return true }
         val chosen: List<Chapter> = s.chapters.filter { it.id in selected }
         if (chosen.isEmpty()) return false
-        JobHolder.pending = JobRequest(s, chosen, mode)
-        DownloadState.start(s.title, chosen, mode)
+        JobHolder.pending = JobRequest(s, chosen, mode, format)
+        DownloadState.start(s.title, chosen, mode, format)
         val app = getApplication<Application>()
         ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
         screen = Screen.PROGRESS
@@ -118,8 +122,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val j = DownloadState.job.value ?: return
         val again = j.chapters.filter { it.state == CState.FAILED || it.state == CState.QUEUED || it.state == CState.ACTIVE }.map { it.chapter }
         val chosen = again.ifEmpty { j.chapters.map { it.chapter } }
-        JobHolder.pending = JobRequest(s, chosen, j.mode)
-        DownloadState.start(s.title, chosen, j.mode)
+        JobHolder.pending = JobRequest(s, chosen, j.mode, j.format)
+        DownloadState.start(s.title, chosen, j.mode, j.format)
         val app = getApplication<Application>()
         ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
         screen = Screen.PROGRESS

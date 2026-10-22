@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 enum class Mode { SINGLE, PER_CHAPTER }
+
+/** Output file type. */
+enum class Format(val ext: String) { CBZ("cbz"), PDF("pdf"), ZIP("zip") }
 enum class CState { QUEUED, ACTIVE, DONE, PARTIAL, FAILED }
 enum class JobStatus { RUNNING, DONE, ERROR, CANCELLED }
 
@@ -32,6 +35,7 @@ data class JobState(
     /** [SystemClock.elapsedRealtime] at start / end. */
     val startedAt: Long = 0,
     val finishedAt: Long = 0,
+    val format: Format = Format.CBZ,
 ) {
     /** 0..1 across all chapters; several chapters can be in flight at once. */
     val fraction: Float
@@ -52,7 +56,7 @@ data class JobState(
     val percent: Int get() = if (status == JobStatus.DONE) 100 else (fraction * 100).toInt()
 }
 
-class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode)
+class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode, val format: Format = Format.CBZ)
 
 /** Hands the (large) job request from the UI to the foreground service. */
 object JobHolder {
@@ -62,8 +66,8 @@ object JobHolder {
 object DownloadState {
     val job = MutableStateFlow<JobState?>(null)
 
-    fun start(title: String, chapters: List<Chapter>, mode: Mode) {
-        job.value = JobState(title, mode, JobStatus.RUNNING, chapters.map { ChapterProgress(it) }, startedAt = SystemClock.elapsedRealtime())
+    fun start(title: String, chapters: List<Chapter>, mode: Mode, format: Format = Format.CBZ) {
+        job.value = JobState(title, mode, JobStatus.RUNNING, chapters.map { ChapterProgress(it) }, startedAt = SystemClock.elapsedRealtime(), format = format)
     }
 
     fun chapter(idx: Int, f: (ChapterProgress) -> ChapterProgress) {

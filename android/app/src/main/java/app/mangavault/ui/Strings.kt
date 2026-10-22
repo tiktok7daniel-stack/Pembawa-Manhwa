@@ -12,8 +12,8 @@ object Strings {
     fun get(lang: String, key: String): String = (if (lang == "ar") ar else en)[key] ?: en[key] ?: key
 
     private val en = mapOf(
-        "tag" to "Manhwa downloader · CBZ", "hero_1" to "EVERY CHAPTER.", "hero_2" to "ONE TAP.",
-        "lead" to "Paste a series link. The vault finds every chapter, pulls all pages in parallel and saves clean CBZ files for offline reading.",
+        "tag" to "Manhwa downloader · CBZ · PDF", "hero_1" to "EVERY CHAPTER.", "hero_2" to "ONE TAP.",
+        "lead" to "Paste a series link. The vault finds every chapter, pulls all pages in parallel and saves them as CBZ, PDF or ZIP for offline reading.",
         "link_label" to "Series link", "ph_url" to "https://site.com/series/…", "paste" to "Paste",
         "browser" to "Browser mode", "browser_d" to "For sites built with JavaScript. Slower.",
         "cta" to "Scan chapters", "verify_btn" to "Verify in browser",
@@ -26,7 +26,7 @@ object Strings {
         "chapters_title" to "Chapters", "search_ch" to "Search chapters…",
         "all" to "All", "first10" to "First 10", "last10" to "Last 10", "range" to "Range", "none" to "None",
         "from" to "From", "to" to "To", "apply" to "Apply", "selected" to "Selected", "no_match" to "No chapter matches your search.",
-        "fmt_single" to "One CBZ", "fmt_zip" to "CBZ per chapter",
+        "fmt_single" to "One file", "fmt_zip" to "File per chapter",
         "fmt_single_d" to "All selected chapters merged into a single file.",
         "fmt_zip_d" to "One CBZ per chapter, inside a folder named after the series.",
         "download_all" to "Download all", "download" to "Download",
@@ -62,8 +62,8 @@ object Strings {
     )
 
     private val ar = mapOf(
-        "tag" to "محمّل مانهوا · CBZ", "hero_1" to "كل الفصول.", "hero_2" to "بضغطة واحدة.",
-        "lead" to "الصق رابط العمل. التطبيق يجد كل الفصول، يحمّل كل الصفحات بالتوازي ويحفظها كملفات CBZ نظيفة للقراءة بدون إنترنت.",
+        "tag" to "محمّل مانهوا · CBZ · PDF", "hero_1" to "كل الفصول.", "hero_2" to "بضغطة واحدة.",
+        "lead" to "الصق رابط العمل. التطبيق يجد كل الفصول، يحمّل كل الصفحات بالتوازي ويحفظها كملفات CBZ أو PDF أو ZIP للقراءة بدون إنترنت.",
         "link_label" to "رابط العمل", "ph_url" to "https://site.com/series/…", "paste" to "لصق",
         "browser" to "وضع المتصفح", "browser_d" to "للمواقع المبنية بـ JavaScript. أبطأ.",
         "cta" to "ابحث عن الفصول", "verify_btn" to "التحقق في المتصفح",
@@ -76,7 +76,7 @@ object Strings {
         "chapters_title" to "الفصول", "search_ch" to "ابحث في الفصول…",
         "all" to "الكل", "first10" to "أول 10", "last10" to "آخر 10", "range" to "نطاق", "none" to "لا شيء",
         "from" to "من", "to" to "إلى", "apply" to "تطبيق", "selected" to "المحدد", "no_match" to "لا يوجد فصل يطابق البحث.",
-        "fmt_single" to "ملف CBZ واحد", "fmt_zip" to "ملف لكل فصل",
+        "fmt_single" to "ملف واحد", "fmt_zip" to "ملف لكل فصل",
         "fmt_single_d" to "كل الفصول المحددة مدمجة في ملف واحد.",
         "fmt_zip_d" to "ملف CBZ لكل فصل داخل مجلد باسم العمل.",
         "download_all" to "حمّل الكل", "download" to "تحميل",

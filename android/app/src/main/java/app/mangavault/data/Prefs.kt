@@ -16,12 +16,15 @@ object Prefs {
     private val _theme = MutableStateFlow("dark")
     private val _browser = MutableStateFlow(false)
     private val _speed = MutableStateFlow("fast")
+    private val _format = MutableStateFlow("CBZ")
     private val _history = MutableStateFlow<List<HistoryItem>>(emptyList())
     val lang: StateFlow<String> = _lang
     val theme: StateFlow<String> = _theme
     val browserDefault: StateFlow<Boolean> = _browser
     /** "balanced" | "fast" | "turbo": how many pages and chapters are fetched at the same time. */
     val speed: StateFlow<String> = _speed
+    /** Last chosen output type (CBZ / PDF / ZIP). */
+    val format: StateFlow<String> = _format
     val history: StateFlow<List<HistoryItem>> = _history
 
     fun init(c: Context) {
@@ -30,6 +33,7 @@ object Prefs {
         _theme.value = sp.getString("theme", "dark") ?: "dark"
         _browser.value = sp.getBoolean("browser", false)
         _speed.value = sp.getString("speed", "fast") ?: "fast"
+        _format.value = sp.getString("format", "CBZ") ?: "CBZ"
         _history.value = try {
             val arr = JSONArray(sp.getString("history", "[]"))
             (0 until arr.length()).map {
@@ -41,6 +45,7 @@ object Prefs {
 
     fun setLang(v: String) { _lang.value = v; sp.edit().putString("lang", v).apply() }
     fun setTheme(v: String) { _theme.value = v; sp.edit().putString("theme", v).apply() }
+    fun setFormat(v: String) { _format.value = v; sp.edit().putString("format", v).apply() }
     fun setSpeed(v: String) { _speed.value = v; sp.edit().putString("speed", v).apply() }
     fun setBrowser(v: Boolean) { _browser.value = v; sp.edit().putBoolean("browser", v).apply() }
 

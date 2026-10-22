@@ -31,13 +31,16 @@ private class Page(val bytes: ByteArray, val ext: String)
 private class PageFile(val file: File, val ext: String)
 
 /** A chapter whose pages are on disk, waiting to be packed. [pages] keeps reading order; null = page that failed. */
+/** A chapter-level problem: that chapter is skipped, the rest of the job goes on. */
+private class ChapterFailed(msg: String) : IOException(msg)
+
 private class Fetched(val pages: List<PageFile?>, val error: Exception?)
 
 /**
  * Downloads chapters as a pipeline:
  *  - several chapters are fetched at the same time (their page lists are read, then every page is requested in parallel),
  *  - all page requests share one limit, so the connection is always full but the site is not flooded,
- *  - pages land in a temp folder and are packed into CBZ files strictly in chapter order.
+ *  - pages land in a temp folder and are packed (CBZ, ZIP or PDF) strictly in chapter order.
  */
 object Downloader {
     private val extMap = mapOf("image/jpeg" to "jpg", "image/jpg" to "jpg", "image/png" to "png", "image/webp" to "webp", "image/avif" to "avif", "image/gif" to "gif")
@@ -59,8 +62,6 @@ object Downloader {
         val frac = if (n.contains('.')) "." + n.substringAfter('.') else ""
         return "Ch ${n.substringBefore('.').padStart(3, '0')}$frac"
     }
-
-    private fun newZip(out: java.io.OutputStream) = ZipOutputStream(out.buffered(256 * 1024)).apply { setLevel(Deflater.NO_COMPRESSION) }
 
     /** Retries transient failures; a 429/503 waits as long as the site asks (or backs off harder). */
     private suspend fun <T> retry(times: Int, block: suspend () -> T): T {
@@ -196,15 +197,82 @@ object Downloader {
         Fetched(emptyList(), e)
     }
 
-    private fun ZipOutputStream.putFile(name: String, file: File) {
-        putNextEntry(ZipEntry(name))
-        file.inputStream().use { it.copyTo(this, 128 * 1024) }
-        closeEntry()
+    /** Writes pages into one output file in a given format. */
+    private abstract class Packer {
+        /** A new chapter starts (bookmark / folder). */
+        abstract fun chapter(title: String)
+        /** Returns false when the page could not be used. */
+        abstract fun page(name: String, pf: PageFile): Boolean
+        /** Adds trailing metadata and closes the underlying stream. */
+        abstract fun close(info: String?)
+    }
+
+    private class ZipPacker(out: java.io.OutputStream) : Packer() {
+        private val zip = ZipOutputStream(out.buffered(256 * 1024)).apply { setLevel(Deflater.NO_COMPRESSION) }
+        override fun chapter(title: String) = Unit
+        override fun page(name: String, pf: PageFile): Boolean {
+            zip.putNextEntry(ZipEntry(name))
+            pf.file.inputStream().use { it.copyTo(zip, 128 * 1024) }
+            zip.closeEntry()
+            return true
+        }
+        override fun close(info: String?) {
+            if (info != null) {
+                zip.putNextEntry(ZipEntry("ComicInfo.xml"))
+                zip.write(info.toByteArray())
+                zip.closeEntry()
+            }
+            zip.close() // flushes and closes the file before it is published
+        }
+    }
+
+    private class PdfPacker(out: java.io.OutputStream) : Packer() {
+        private val pdf = PdfWriter(out)
+        override fun chapter(title: String) = pdf.bookmark(title)
+        override fun page(name: String, pf: PageFile): Boolean {
+            val bytes = pf.file.readBytes()
+            val info = Jpeg.info(bytes)
+            if (info != null) { pdf.addJpeg(bytes, info); return true }
+            val jpeg = toJpeg(bytes) ?: return false
+            pdf.addJpeg(jpeg.first, jpeg.second)
+            return true
+        }
+        override fun close(info: String?) = pdf.close()
+
+        /** PNG / WebP / GIF / AVIF pages are re-encoded once as high-quality JPEG on a white background. */
+        private fun toJpeg(bytes: ByteArray): Pair<ByteArray, JpegInfo>? = try {
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sample = 1
+            while (bounds.outWidth / sample > 2000) sample *= 2
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+            val src = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            if (src == null) null else {
+                val flat = android.graphics.Bitmap.createBitmap(src.width, src.height, android.graphics.Bitmap.Config.ARGB_8888)
+                android.graphics.Canvas(flat).apply { drawColor(android.graphics.Color.WHITE); drawBitmap(src, 0f, 0f, null) }
+                src.recycle()
+                val out = java.io.ByteArrayOutputStream()
+                flat.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
+                val info = JpegInfo(flat.width, flat.height, 3)
+                flat.recycle()
+                out.toByteArray() to info
+            }
+        } catch (_: Throwable) { null }
+    }
+
+    private fun packer(format: Format, out: java.io.OutputStream): Packer = if (format == Format.PDF) PdfPacker(out) else ZipPacker(out)
+
+    private fun mime(format: Format) = when (format) {
+        Format.PDF -> "application/pdf"
+        Format.ZIP -> "application/zip"
+        Format.CBZ -> "application/vnd.comicbook+zip"
     }
 
     suspend fun run(ctx: Context, req: JobRequest) {
         val series = req.series
         val selected = req.chapters
+        val format = req.format
+        val ext = format.ext
         val base = safeName(series.title)
         val referer = Sources.referer(series)
         val headers = series.session?.let { mapOf("Cookie" to it.cookie, "User-Agent" to it.userAgent) } ?: emptyMap()
@@ -214,18 +282,19 @@ object Downloader {
         val chapterGate = Semaphore(chaptersAhead)
         val work = File(ctx.cacheDir, "dl-${System.currentTimeMillis()}")
         if (DownloadState.job.value?.status != JobStatus.RUNNING || DownloadState.job.value?.chapters?.size != selected.size) {
-            DownloadState.start(series.title, selected, req.mode)
+            DownloadState.start(series.title, selected, req.mode, format)
         }
 
         var singleTarget: OutputTarget? = null
-        var singleZip: ZipOutputStream? = null
+        var single: Packer? = null
         var last: SavedInfo? = null
         var ok = 0
         var files = 0
         try {
             if (req.mode == Mode.SINGLE) {
-                singleTarget = withContext(Dispatchers.IO) { Storage.open(ctx, base, "$base.cbz") }
-                singleZip = newZip(singleTarget.stream)
+                val t = withContext(Dispatchers.IO) { Storage.open(ctx, base, "$base.$ext", mime(format)) }
+                singleTarget = t
+                single = packer(format, t.stream)
             }
             coroutineScope {
                 // Every chapter gets a fetcher; the fair semaphore lets them run [chaptersAhead] at a time, in order.
@@ -238,26 +307,30 @@ object Downloader {
                     var target: OutputTarget? = null
                     try {
                         fetched.error?.let { throw it }
-                        val good = fetched.pages.count { it != null }
-                        if (good == 0) throw IOException("no pages could be downloaded")
+                        if (fetched.pages.none { it != null }) throw ChapterFailed("no pages could be downloaded")
                         val lbl = label(ch, idx, width)
                         val pw = maxOf(3, fetched.pages.size.toString().length)
+                        var good = 0
                         withContext(Dispatchers.IO) {
-                            val zip = if (req.mode == Mode.SINGLE) singleZip!! else {
-                                target = Storage.open(ctx, base, "$base - $lbl.cbz")
-                                newZip(target!!.stream)
+                            val pack = single ?: run {
+                                val t = Storage.open(ctx, base, "$base - $lbl.$ext", mime(format))
+                                target = t
+                                packer(format, t.stream)
                             }
+                            pack.chapter(chapterTitle(ch, lbl))
                             fetched.pages.forEachIndexed { n, pf ->
                                 if (pf == null) return@forEachIndexed
                                 val no = (n + 1).toString().padStart(pw, '0')
-                                val name = if (req.mode == Mode.SINGLE) "${lbl.replace(' ', '_')}_p$no.${pf.ext}" else "$no.${pf.ext}"
-                                zip.putFile(name, pf.file)
+                                val name = when {
+                                    req.mode == Mode.PER_CHAPTER -> "$no.${pf.ext}"
+                                    format == Format.ZIP -> "$lbl/$no.${pf.ext}"
+                                    else -> "${lbl.replace(' ', '_')}_p$no.${pf.ext}"
+                                }
+                                if (pack.page(name, pf)) good++
                             }
+                            if (good == 0) throw ChapterFailed("pages could not be converted")
                             if (req.mode == Mode.PER_CHAPTER) {
-                                zip.putNextEntry(ZipEntry("ComicInfo.xml"))
-                                zip.write(comicInfo(series.title, ch, good).toByteArray())
-                                zip.closeEntry()
-                                zip.close() // flushes and closes the file before it is published
+                                pack.close(if (format == Format.CBZ) comicInfo(series.title, ch, good) else null)
                                 last = target!!.finish()
                                 files++
                             }
@@ -270,8 +343,8 @@ object Downloader {
                         throw e
                     } catch (e: Exception) {
                         target?.abort()
-                        // In single-file mode a broken archive stream is fatal; a chapter that simply had no pages is not.
-                        if (req.mode == Mode.SINGLE && fetched.error == null && fetched.pages.any { it != null }) throw e
+                        // In single-file mode a broken output stream is fatal; a chapter that simply had no usable pages is not.
+                        if (req.mode == Mode.SINGLE && e !is ChapterFailed && e !== fetched.error) throw e
                         DownloadState.chapter(idx) { it.copy(state = CState.FAILED, error = reason(e)) }
                     } finally {
                         withContext(Dispatchers.IO) { File(work, idx.toString()).deleteRecursively() }
@@ -280,12 +353,10 @@ object Downloader {
                 }
             }
             if (ok == 0) throw IOException("None of the selected chapters could be downloaded")
-            if (req.mode == Mode.SINGLE) {
+            val pack = single
+            if (pack != null) {
                 withContext(Dispatchers.IO) {
-                    singleZip!!.putNextEntry(ZipEntry("ComicInfo.xml"))
-                    singleZip!!.write(comicInfo(series.title, null, 0).toByteArray())
-                    singleZip!!.closeEntry()
-                    singleZip!!.close()
+                    pack.close(if (format == Format.CBZ) comicInfo(series.title, null, 0) else null)
                     last = singleTarget!!.finish()
                 }
                 files = 1
@@ -305,5 +376,10 @@ object Downloader {
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { work.deleteRecursively() }
         }
+    }
+
+    private fun chapterTitle(ch: Chapter, lbl: String): String {
+        val n = ch.number ?: return ch.title.ifBlank { lbl }
+        return if (ch.title.isBlank() || ch.title.contains(n)) ch.title.ifBlank { "Chapter $n" } else "Chapter $n · ${ch.title}"
     }
 }

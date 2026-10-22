@@ -90,6 +90,7 @@ import app.mangavault.data.Prefs
 import app.mangavault.download.CState
 import app.mangavault.download.ChapterProgress
 import app.mangavault.download.DownloadState
+import app.mangavault.download.Format
 import app.mangavault.download.JobState
 import app.mangavault.download.JobStatus
 import app.mangavault.download.Mode
@@ -333,6 +334,8 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
                 .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val formats = Format.values().toList()
+            Segmented(formats.map { it.name }, formats.indexOf(vm.format), { vm.pickFormat(formats[it]) })
             Segmented(listOf(t("fmt_single"), t("fmt_zip")), if (vm.mode == Mode.SINGLE) 0 else 1, { vm.mode = if (it == 0) Mode.SINGLE else Mode.PER_CHAPTER })
             PrimaryButton(
                 if (all) "${t("download_all")} · ${s.chapters.size}" else "${t("download")} · ${vm.selected.size}",
@@ -661,7 +664,7 @@ fun DownloadsScreen() {
 @Composable
 private fun HistoryRow(h: HistoryItem, onOpen: () -> Unit) {
     Row(Modifier.fillMaxWidth().panel(brackets = false).press(onClick = onOpen).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconBadge(if (h.files > 1) Ico.Folder else Ico.Archive, Mana, 44)
+        IconBadge(if (h.files > 1) Ico.Folder else if (h.path.endsWith(".pdf", true)) Ico.Book else Ico.Archive, Mana, 44)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(h.title, fontWeight = FontWeight.Medium, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
