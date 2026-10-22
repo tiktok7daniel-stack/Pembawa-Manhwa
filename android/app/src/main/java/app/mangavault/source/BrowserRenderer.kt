@@ -30,7 +30,7 @@ object BrowserHost {
 const val BROWSER_UA = Http.UA
 
 class RenderedImage(val src: String, val w: Int, val h: Int, val skip: Boolean)
-class RenderResult(val html: String, val url: String, val images: List<RenderedImage>, val cookie: String)
+class RenderResult(val html: String, val url: String, val images: List<RenderedImage>, val cookie: String, val snapshots: List<String> = emptyList())
 
 /** Loads a page in Android's built-in browser engine, scrolls it so lazy images load, and returns what was rendered. */
 object BrowserRenderer {
@@ -41,15 +41,25 @@ object BrowserRenderer {
         "var els=[].slice.call(document.querySelectorAll('button,a,div[role=button],span'));" +
         "for(var i=0;i<els.length;i++){var e=els[i];var t=(e.textContent||'').trim();" +
         "if(t.length<40&&re.test(t)&&e.offsetParent!==null){e.click();return 'y';}}return 'n';})()"
+    private const val JS_NEXT = "(function(){var re=/^(next|next page|›|»|>|التالي|older|الصفحة التالية)$/i;" +
+        "var els=[].slice.call(document.querySelectorAll('a,button,li,span'));for(var i=0;i<els.length;i++){var e=els[i];" +
+        "var t=(e.textContent||'').trim();var lab=(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('rel')||'');" +
+        "if((re.test(t)||/next/i.test(lab))&&e.offsetParent!==null&&!e.disabled&&!/disabled/i.test(e.className)){e.click();return 'y';}}return 'n';})()"
+    private const val JS_RANGES = "(function(){return String([].slice.call(document.querySelectorAll('a,button,li,span,div[role=tab],option'))" +
+        ".filter(function(e){return /^\\s*\\d+\\s*[-\u2013~]\\s*\\d+\\s*$/.test(e.textContent||'')&&e.children.length===0;}).length);})()"
+    private const val JS_RANGE_CLICK = "(function(i){var els=[].slice.call(document.querySelectorAll('a,button,li,span,div[role=tab],option'))" +
+        ".filter(function(e){return /^\\s*\\d+\\s*[-\u2013~]\\s*\\d+\\s*$/.test(e.textContent||'')&&e.children.length===0;});" +
+        "var e=els[i];if(!e)return 'n';if(e.tagName==='OPTION'){var s=e.parentElement;s.value=e.value;s.dispatchEvent(new Event('change',{bubbles:true}));}else{e.click();}return 'y';})"
+    private const val JS_HTML = "document.documentElement.outerHTML"
     private const val JS_SCROLL = "(function(){window.scrollBy(0,Math.max(600,innerHeight*0.9));return String(document.documentElement.scrollHeight);})()"
     private const val JS_BOTTOM = "(function(){return String(innerHeight+scrollY>=document.documentElement.scrollHeight-4);})()"
     private const val JS_IMAGES = "JSON.stringify([].slice.call(document.images).map(function(i){return {s:i.currentSrc||i.src||i.getAttribute('data-src')||''," +
         "w:i.naturalWidth,h:i.naturalHeight,k:!!i.closest('header,footer,nav,aside,.sidebar,.related,.recommend,.comments,#comments,.ads,[class*=advert]')};}))"
 
-    suspend fun render(url: String, expand: Boolean = false, scroll: Boolean = true): RenderResult = mutex.withLock {
+    suspend fun render(url: String, expand: Boolean = false, scroll: Boolean = true, paginate: Boolean = false): RenderResult = mutex.withLock {
         val host = BrowserHost.container ?: throw SourceException(Err.BROWSER)
         try {
-            withTimeout(100_000L) { withContext(Dispatchers.Main) { run(host, url, expand, scroll) } }
+            withTimeout(if (paginate) 240_000L else 100_000L) { withContext(Dispatchers.Main) { run(host, url, expand, scroll, paginate) } }
         } catch (e: TimeoutCancellationException) {
             throw SourceException(Err.BROWSER, "timeout")
         }
@@ -65,7 +75,7 @@ object BrowserRenderer {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun run(host: FrameLayout, url: String, expand: Boolean, scroll: Boolean): RenderResult {
+    private suspend fun run(host: FrameLayout, url: String, expand: Boolean, scroll: Boolean, paginate: Boolean): RenderResult {
         val web = WebView(host.context)
         val loaded = CompletableDeferred<Unit>()
         web.settings.javaScriptEnabled = true
@@ -101,6 +111,26 @@ object BrowserRenderer {
                 }
                 delay(800)
             }
+            // Chapter lists split into pages or "1-100" tabs: open each one and keep a copy of what it shows.
+            val snapshots = ArrayList<String>()
+            if (paginate) {
+                snapshots.add(web.js(JS_HTML) ?: "")
+                val ranges = web.js(JS_RANGES)?.toIntOrNull() ?: 0
+                for (i in 0 until minOf(ranges, 40)) {
+                    if (web.js("$JS_RANGE_CLICK($i)") != "y") break
+                    delay(1300)
+                    snapshots.add(web.js(JS_HTML) ?: "")
+                }
+                var lastHtml = snapshots.lastOrNull() ?: ""
+                for (i in 0 until 40) {
+                    if (web.js(JS_NEXT) != "y") break
+                    delay(1500)
+                    val html = web.js(JS_HTML) ?: break
+                    if (html == lastHtml) break
+                    snapshots.add(html)
+                    lastHtml = html
+                }
+            }
             val images = ArrayList<RenderedImage>()
             val arr = JSONArray(web.js(JS_IMAGES) ?: "[]")
             for (i in 0 until arr.length()) {
@@ -109,7 +139,7 @@ object BrowserRenderer {
             }
             val html = web.js("document.documentElement.outerHTML") ?: ""
             val finalUrl = web.url ?: url
-            return RenderResult(html, finalUrl, images, CookieManager.getInstance().getCookie(finalUrl) ?: "")
+            return RenderResult(html, finalUrl, images, CookieManager.getInstance().getCookie(finalUrl) ?: "", snapshots)
         } finally {
             host.removeView(web)
             web.stopLoading()

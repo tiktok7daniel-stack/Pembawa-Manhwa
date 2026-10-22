@@ -98,6 +98,85 @@ object GenericSource {
         throw last ?: SourceException(Err.NO_CHAPTERS)
     }
 
+    private val pageParam = Regex("[?&](page|p|pg|paged|chapter_page|cp|start)=(\\d+)", IC)
+    private val pagePath = Regex("/page/\\d+/?$", IC)
+    private val rangeText = Regex("^\\s*\\d+\\s*[-–~]\\s*\\d+\\s*$")
+    private val notFound = Regex("404|not found|page not found|غير موجود|الصفحة غير", IC)
+
+    /** Links to further pages of the same chapter list: ?page=2, /page/2, "Next", "1-100" range tabs/selects. */
+    private fun listPages(doc: Document, base: String): List<String> {
+        val out = LinkedHashSet<String>()
+        val basePath = try { URL(base).path.trimEnd('/') } catch (_: Exception) { return emptyList() }
+        doc.selectFirst(NEXT)?.absUrl("href")?.let { if (it.isNotBlank()) out.add(it) }
+        for (el in doc.select("a[href], option[value]")) {
+            val isOption = el.tagName() == "option"
+            val link = if (isOption) el.absUrl("value") else el.absUrl("href")
+            if (!link.startsWith("http") || !sameSite(link, base)) continue
+            val path = try { URL(link).path.trimEnd('/') } catch (_: Exception) { continue }
+            if (!path.startsWith(basePath)) continue
+            val paged = pageParam.containsMatchIn(link) || pagePath.containsMatchIn(path)
+            val range = rangeText.matches(el.text())
+            if (paged || (range && path != basePath) || (isOption && range)) out.add(link.substringBefore('#'))
+        }
+        return out.toList()
+    }
+
+    /** Follows every page of a paginated chapter list (breadth-first, capped). */
+    private suspend fun crawlListPages(first: Found, firstUrl: String, headers: Map<String, String>): List<Raw> {
+        var list = first.list
+        val visited = mutableSetOf(firstUrl.substringBefore('#'))
+        val queue = ArrayDeque(listPages(first.doc, firstUrl))
+        var fetched = 0
+        while (queue.isNotEmpty() && fetched < 60) {
+            val next = queue.removeFirst()
+            if (!visited.add(next)) continue
+            val p = try { Http.text(next, headers) } catch (_: Exception) { continue }
+            fetched++
+            val more = readSeries(p.body, p.url)
+            list = list + more.list
+            listPages(more.doc, firstUrl).forEach { if (it !in visited) queue.addLast(it) }
+        }
+        return list
+    }
+
+    private fun wholeNumber(r: Raw): Int? = r.number?.toDoubleOrNull()?.takeIf { it == Math.floor(it) && it >= 0 }?.toInt()
+
+    /** True when the list visibly starts after chapter 1, i.e. older chapters are hidden somewhere. */
+    private fun looksIncomplete(list: List<Raw>): Boolean {
+        val nums = list.mapNotNull { wholeNumber(it) }
+        return nums.size >= 2 && nums.min() > 1
+    }
+
+    private suspend fun exists(url: String, headers: Map<String, String>): Boolean = try {
+        val r = Http.text(url, headers)
+        val samePath = URL(r.url).path.trimEnd('/') == URL(url).path.trimEnd('/')
+        samePath && !notFound.containsMatchIn(Jsoup.parse(r.body).title())
+    } catch (_: Exception) { false }
+
+    /**
+     * Chapter links usually follow one pattern (".../chapter-150/"). When the site only lists some of them,
+     * rebuild the missing ones from that pattern, after checking that a few of them really exist.
+     */
+    private suspend fun fillGaps(list: List<Raw>, headers: Map<String, String>): List<Raw> {
+        val numbered = list.filter { wholeNumber(it) != null }
+        if (numbered.size < 2) return list
+        fun template(r: Raw): String? {
+            val n = wholeNumber(r).toString()
+            val hits = Regex("(?<!\\d)" + n + "(?!\\d)").findAll(r.href).toList()
+            if (hits.size != 1) return null
+            val m = hits[0].range
+            return r.href.substring(0, m.first) + "{n}" + r.href.substring(m.last + 1)
+        }
+        val best = numbered.mapNotNull { template(it) }.groupingBy { it }.eachCount().maxByOrNull { it.value } ?: return list
+        if (best.value < 2 || best.value < numbered.size * 0.8) return list
+        val have = numbered.mapNotNull { wholeNumber(it) }.toSet()
+        val missing = (1 until have.max()).filter { it !in have }
+        if (missing.isEmpty() || missing.size > 5000) return list
+        val probes = listOf(missing.first(), missing[missing.size / 2], missing.last()).distinct()
+        for (n in probes) if (!exists(best.key.replace("{n}", n.toString()), headers)) return list
+        return list + missing.map { Raw(best.key.replace("{n}", it.toString()), "", it.toString()) }
+    }
+
     private suspend fun loadSeries(url: String, browser: Boolean): Series {
         var found: Found? = null
         var session: Session? = null
@@ -117,33 +196,33 @@ object GenericSource {
                         if (extra.size > list.size) list = extra
                     } catch (_: Exception) { /* keep what the page showed */ }
                 }
-                // Paginated chapter lists.
-                var next = f.doc.selectFirst(NEXT)?.absUrl("href")
-                val visited = mutableSetOf(r.url)
-                var guard = 0
-                while (guard++ < 30) {
-                    val n = next?.takeIf { it.isNotBlank() } ?: break
-                    if (n in visited || !sameSite(n, r.url)) break
-                    visited += n
-                    val p = try { Http.text(n) } catch (_: Exception) { break }
-                    val more = readSeries(p.body, p.url)
-                    list = list + more.list
-                    next = more.doc.selectFirst(NEXT)?.absUrl("href")
-                }
                 f.list = list
+                f.list = crawlListPages(f, r.url, emptyMap())
+                if (looksIncomplete(f.list)) f.list = fillGaps(f.list, emptyMap())
                 found = f
             } catch (e: HttpStatusException) {
                 if (!blocked(e.code)) throw e
             }
         }
 
-        // Too little found, or blocked: load it in a real (WebView) browser so JavaScript-built pages work.
+        // Too little found, blocked, or older chapters still hidden: use the real (WebView) browser, which also
+        // clicks "Next" / range tabs and collects every list it sees.
         val current = found
-        if (current == null || current.list.size < 2) {
-            val r = BrowserRenderer.render(url, expand = true)
-            val second = readSeries(r.html, r.url)
-            if (current == null || second.list.size > current.list.size) {
-                found = second
+        if (current == null || current.list.size < 2 || looksIncomplete(current.list)) {
+            val r = BrowserRenderer.render(url, expand = true, paginate = true)
+            var merged = current?.list ?: emptyList()
+            var title: Found? = null
+            for (html in r.snapshots + r.html) {
+                val snap = readSeries(html, r.url)
+                if (title == null) title = snap
+                merged = merged + snap.list
+            }
+            val headers = mapOf("Cookie" to r.cookie, "User-Agent" to Http.UA)
+            if (looksIncomplete(merged)) merged = fillGaps(merged, headers)
+            val base = current ?: title!!
+            if (current == null || merged.size > current.list.size) {
+                base.list = merged
+                found = base
                 session = Session(r.cookie, Http.UA)
                 rendered = true
             }
