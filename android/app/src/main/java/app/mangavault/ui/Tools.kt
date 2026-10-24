@@ -133,12 +133,39 @@ fun ToolsScreen(vm: AppViewModel, onPick: () -> Unit) {
 private fun LevelPanel(vm: AppViewModel, running: Boolean) {
     val p = LocalPalette.current
     val levels = Level.values().toList()
+    val kind = vm.picked?.kind
     Panel(Modifier.fillMaxWidth()) {
+        SectionLabel(t("cmp_codec"))
+        Spacer(Modifier.height(10.dp))
+        Segmented(
+            if (kind == FileKind.PDF) listOf("PDF · JPEG", "CBZ · WebP") else listOf("JPEG", "WebP"),
+            if (vm.webp) 1 else 0, { if (!running) vm.chooseWebp(it == 1) },
+        )
+        Spacer(Modifier.height(6.dp))
+        Muted(t(if (vm.webp) (if (kind == FileKind.PDF) "codec_cbz_d" else "codec_webp_d") else "codec_jpeg_d"), size = 12)
+        Spacer(Modifier.height(16.dp))
         SectionLabel(t("cmp_level"))
         Spacer(Modifier.height(10.dp))
         Segmented(listOf(t("lv_high"), t("lv_bal"), t("lv_small"), t("lv_target")), levels.indexOf(vm.level), { if (!running) vm.level = levels[it] })
         Spacer(Modifier.height(8.dp))
         Muted(t("lv_" + vm.level.name.lowercase() + "_d"), size = 12)
+        Spacer(Modifier.height(12.dp))
+        // Measured on sample pages of this very file, before anything is written.
+        Row(Modifier.fillMaxWidth().clip(PanelShape).background(p.bg.copy(alpha = if (p.dark) 0.55f else 0.6f)).border(1.dp, p.line, PanelShape)) {
+            val est = vm.estimate
+            listOf(t("lv_high") to est?.high, t("lv_bal") to est?.balanced, t("lv_small") to est?.small).forEachIndexed { i, (label, v) ->
+                if (i > 0) Box(Modifier.width(1.dp).height(52.dp).background(p.line))
+                Column(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 9.dp)) {
+                    Text(label.uppercase(), color = p.muted, fontFamily = display(), fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.2.sp, maxLines = 1)
+                    Spacer(Modifier.height(4.dp))
+                    when {
+                        v != null -> Text("≈ " + fmtBytes(v.toDouble()), fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                        vm.estimating -> Box(Modifier.fillMaxWidth(0.8f).height(14.dp).skeleton())
+                        else -> Text("—", fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                }
+            }
+        }
         AnimatedVisibility(vm.level == Level.TARGET, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(Modifier.padding(top = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -156,14 +183,23 @@ private fun LevelPanel(vm: AppViewModel, running: Boolean) {
                     }
                     listOf("20", "50", "100").forEach { mb -> Chip("$mb MB", { vm.targetMb = mb }, selected = vm.targetMb == mb) }
                 }
-                val target = vm.targetMb.toLongOrNull() ?: 0
-                val size = vm.picked?.size ?: 0
-                if (target > 0 && size > 0 && target * 1048576L * 25 < size) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Ico.Alert, null, tint = Amber, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(t("tgt_warn"), color = Amber, fontSize = 12.sp, lineHeight = 17.sp)
+                val target = (vm.targetMb.toLongOrNull() ?: 0) * 1048576L
+                val est = vm.estimate
+                if (target > 0 && est != null) {
+                    // What this target really costs in quality, judged against the measured presets.
+                    val g = est.grade(target)
+                    val c = when (g) { 0, 1 -> Success; 2 -> Mana; 3 -> Amber; else -> Danger }
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth().clip(PanelShape).background(c.copy(alpha = 0.10f)).border(1.dp, c.copy(alpha = 0.4f), PanelShape).padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(if (g <= 2) Ico.Check else Ico.Alert, null, tint = c, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("${t("grade")}: ${t("grade_$g")}", color = c, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Muted(t("grade_${g}_d"), size = 12)
+                        }
                     }
                 }
             }

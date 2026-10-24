@@ -89,6 +89,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var pickError by mutableStateOf(false)
     var level by mutableStateOf(Level.BALANCED)
     var targetMb by mutableStateOf("20")
+    /** Encode pages as WebP (PDF input is then saved as CBZ). */
+    var webp by mutableStateOf(false)
+    var estimate by mutableStateOf<app.mangavault.download.Estimate?>(null)
+    var estimating by mutableStateOf(false)
+    private var estimateJob: Job? = null
+
+    fun chooseWebp(v: Boolean) {
+        if (v == webp) return
+        webp = v
+        refreshEstimate()
+    }
+
+    /** Samples a few pages of the chosen file at each preset so the expected sizes show before compressing. */
+    private fun refreshEstimate() {
+        val f = picked ?: return
+        val app = getApplication<Application>()
+        estimateJob?.cancel()
+        estimate = null
+        estimating = true
+        val useWebp = webp
+        estimateJob = viewModelScope.launch {
+            val e = withContext(Dispatchers.Default) { Compressor.estimate(app, f.uri, f.kind, f.size, useWebp) }
+            estimate = e
+            estimating = false
+        }
+    }
 
     fun langNow(): String = Prefs.lang.value
 
@@ -114,7 +140,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (kind == null) null else PickedFile(uri, name, size, kind)
             }
             pickError = f == null
-            if (f != null) picked = f
+            if (f != null) {
+                picked = f
+                webp = f.kind == FileKind.ZIP
+                refreshEstimate()
+            }
         }
     }
 
@@ -124,7 +154,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (CompressState.job.value?.status == JobStatus.RUNNING) return true
         val target = if (level == Level.TARGET) (targetMb.toLongOrNull() ?: 0) * 1048576L else 0
         if (level == Level.TARGET && target <= 0) return false
-        CompressState.pending = CompressRequest(f.uri, f.name, f.size, f.kind, level, target)
+        CompressState.pending = CompressRequest(f.uri, f.name, f.size, f.kind, level, target, webp)
         CompressState.job.value = CompressJob(f.name, JobStatus.RUNNING, f.size)
         val app = getApplication<Application>()
         ContextCompat.startForegroundService(app, Intent(app, CompressService::class.java))

@@ -217,6 +217,25 @@ class EndToEndTest {
     }
 
     @Test
+    fun compressesAPdfToOneTwentiethAsWebpCbz() = runBlocking {
+        val src = java.io.File(ctx.cacheDir, "huge.pdf")
+        app.mangavault.download.PdfWriter(src.outputStream()).use { pdf ->
+            for (i in 1..6) { val j = heavyJpeg(30 + i); pdf.addJpeg(j, app.mangavault.download.Jpeg.info(j)!!) }
+        }
+        val uri = Uri.fromFile(src)
+        val est = app.mangavault.download.Compressor.estimate(ctx, uri, app.mangavault.download.FileKind.PDF, src.length(), true)!!
+        assertTrue("estimates ordered", est.high >= est.balanced && est.balanced >= est.small)
+        val target = src.length() / 20
+        app.mangavault.download.Compressor.run(ctx, app.mangavault.download.CompressRequest(uri, "huge.pdf", src.length(),
+            app.mangavault.download.FileKind.PDF, app.mangavault.download.Level.TARGET, target, webp = true))
+        val j = app.mangavault.download.CompressState.job.value!!
+        assertEquals(j.error, JobStatus.DONE, j.status)
+        assertTrue("target $target got ${j.outBytes}", j.outBytes <= target * 1.1)
+        assertTrue(j.outPath, j.outPath!!.endsWith(".cbz"))
+        assertEquals(6, zipNames(j.outUri!!).count { it.endsWith(".webp") })
+    }
+
+    @Test
     fun compressesACbzToATargetSizeAndKeepsEveryImage() = runBlocking {
         val src = java.io.File(ctx.cacheDir, "big.cbz")
         java.util.zip.ZipOutputStream(src.outputStream()).use { z ->
