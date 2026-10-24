@@ -364,6 +364,7 @@ object Downloader {
         private var file: File? = null
         private var pack: Packer? = null
         private var bytes = 0L
+        private var pagesInPart = 0
         private var firstNo: String? = null
         private var lastNo: String? = null
         private val pieces = HashMap<String, Int>()
@@ -374,11 +375,13 @@ object Downloader {
             file = f
             pack = packer(format, f.outputStream())
             bytes = 0
+            pagesInPart = 0
             firstNo = null
         }
 
         private fun close() {
             val p = pack ?: return
+            if (pagesInPart == 0) { abort(); return } // never publish an empty part
             val f = file!!
             p.close(if (format == Format.CBZ) comicInfo(series, null, 0) else null)
             val a = firstNo ?: "?"
@@ -413,13 +416,13 @@ object Downloader {
             // so a chapter is only cut when it is bigger than a part on its own.
             val prepared = pages.mapNotNull { (name, pf) -> pack!!.prepare(name, pf) }
             val size = prepared.sumOf { it.size } + 200 + 4L * title.length
-            if (bytes > 0 && bytes + size > limit - reserve) { close(); open() }
+            if (pagesInPart > 0 && bytes + size > limit - reserve) { close(); open() }
             pack!!.chapter(title)
             bytes += 200 + 4L * title.length
             if (firstNo == null) firstNo = no
             lastNo = no
             for (p in prepared) {
-                if (bytes > 0 && bytes + p.size > limit - reserve) {
+                if (pagesInPart > 0 && bytes + p.size > limit - reserve) {
                     // This chapter alone is larger than a part: continue it in the next one.
                     close()
                     open()
@@ -430,6 +433,7 @@ object Downloader {
                 }
                 pack!!.add(p)
                 bytes += p.size
+                pagesInPart++
             }
             return prepared.size
         }

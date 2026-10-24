@@ -405,9 +405,11 @@ object Compressor {
      * Measures a few pages spread through the file at each preset and scales up, so the user sees the expected size
      * (and, for a target, the quality it implies) before spending minutes on a big file.
      */
-    fun estimate(ctx: Context, uri: Uri, kind: FileKind, size: Long, webp: Boolean): Estimate? = try {
+    fun estimate(ctx: Context, uri: Uri, kind: FileKind, size: Long, webp: Boolean): Estimate? = try { estimateOrThrow(ctx, uri, kind, size, webp) } catch (_: Throwable) { null }
+
+    private fun estimateOrThrow(ctx: Context, uri: Uri, kind: FileKind, size: Long, webp: Boolean): Estimate? {
         val presets = listOf(Level.HIGH, Level.BALANCED, Level.SMALL)
-        if (kind == FileKind.PDF) {
+        return if (kind == FileKind.PDF) {
             openPdf(ctx, uri) { r ->
                 val n = r.pageCount
                 if (n == 0) return@openPdf null
@@ -440,5 +442,5 @@ object Compressor {
                 }
             }
         }
-    } catch (_: Throwable) { null }
+    }
 }
