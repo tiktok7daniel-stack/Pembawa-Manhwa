@@ -106,7 +106,7 @@ import java.util.Locale
 private val manaSpan = SpanStyle(brush = ManaH)
 
 @Composable
-private fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, trailing: @Composable RowScope.() -> Unit = {}) {
+internal fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) {
             IconTile(Ico.ArrowLeft, onBack)
@@ -121,7 +121,7 @@ private fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, trailing
 }
 
 @Composable
-private fun IconBadge(icon: ImageVector, color: Color = Mana, size: Int = 40) {
+internal fun IconBadge(icon: ImageVector, color: Color = Mana, size: Int = 40) {
     Box(
         Modifier.size(size.dp).clip(SmallBlade).background(color.copy(alpha = 0.12f)).border(1.dp, color.copy(alpha = 0.35f), SmallBlade),
         contentAlignment = Alignment.Center,
@@ -426,20 +426,20 @@ private fun InlineField(value: String, onChange: (String) -> Unit, hint: String,
 
 // ================================================================ Progress
 
-private fun fmtBytes(b: Double): String = when {
+internal fun fmtBytes(b: Double): String = when {
     b >= 1024.0 * 1024 * 1024 -> String.format(Locale.US, "%.2f GB", b / (1024.0 * 1024 * 1024))
     b >= 1024.0 * 1024 -> String.format(Locale.US, "%.1f MB", b / (1024.0 * 1024))
     b >= 1024.0 -> String.format(Locale.US, "%.0f KB", b / 1024.0)
     else -> String.format(Locale.US, "%.0f B", b)
 }
 
-private fun fmtTime(ms: Long): String {
+internal fun fmtTime(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
     return if (s >= 3600) String.format(Locale.US, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
     else String.format(Locale.US, "%d:%02d", s / 60, s % 60)
 }
 
-private fun statusColor(s: JobStatus) = when (s) {
+internal fun statusColor(s: JobStatus) = when (s) {
     JobStatus.RUNNING -> Mana
     JobStatus.DONE -> Success
     JobStatus.ERROR -> Danger

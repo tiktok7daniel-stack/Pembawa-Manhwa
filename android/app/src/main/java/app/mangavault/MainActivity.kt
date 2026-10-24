@@ -30,6 +30,25 @@ class MainActivity : ComponentActivity() {
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    /** System file picker for the compression tool. */
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
+            vm.onPicked(uri)
+        }
+    }
+
+    fun pickFile() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        try {
+            filePicker.launch(arrayOf("application/pdf", "application/zip", "application/x-cbz", "application/vnd.comicbook+zip", "application/octet-stream", "application/x-zip-compressed"))
+        } catch (_: Exception) {
+            Toast.makeText(this, "No file manager found", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -38,7 +57,7 @@ class MainActivity : ComponentActivity() {
         // (almost invisible) layer underneath the UI.
         val browserLayer = FrameLayout(this).apply { alpha = 0.01f }
         BrowserHost.container = browserLayer
-        val ui = ComposeView(this).apply { setContent { MangaVaultApp(vm, ::beginDownload) } }
+        val ui = ComposeView(this).apply { setContent { MangaVaultApp(vm, ::beginDownload, ::pickFile) } }
         val root = FrameLayout(this)
         root.addView(browserLayer, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(ui, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.sp
 import app.mangavault.data.Prefs
 
 @Composable
-fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit) {
+fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit, onPickFile: () -> Unit = {}) {
     val lang by Prefs.lang.collectAsState()
     val theme by Prefs.theme.collectAsState()
     val dark = when (theme) { "light" -> false; "system" -> isSystemInDarkTheme(); else -> true }
@@ -86,6 +86,7 @@ fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit) {
                         Screen.RESULT.name -> ResultScreen(vm, onDownload)
                         Screen.PROGRESS.name -> ProgressScreen(vm)
                         Tab.DOWNLOADS.name -> DownloadsScreen()
+                        Tab.TOOLS.name -> ToolsScreen(vm, onPickFile)
                         Tab.SETTINGS.name -> SettingsScreen()
                         else -> HomeScreen(vm)
                     }
@@ -116,6 +117,7 @@ private fun Dock(vm: AppViewModel) {
     val tabs: List<Triple<Tab, ImageVector, String>> = listOf(
         Triple(Tab.HOME, Ico.Home, t("nav_home")),
         Triple(Tab.DOWNLOADS, Ico.Download, t("nav_downloads")),
+        Triple(Tab.TOOLS, Ico.Shrink, t("nav_tools")),
         Triple(Tab.SETTINGS, Ico.Sliders, t("nav_settings")),
     )
     val index = tabs.indexOfFirst { it.first == vm.tab }.coerceAtLeast(0)

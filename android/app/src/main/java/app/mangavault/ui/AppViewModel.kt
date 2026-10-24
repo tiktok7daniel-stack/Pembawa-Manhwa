@@ -15,7 +15,14 @@ import app.mangavault.download.DownloadState
 import app.mangavault.download.JobHolder
 import app.mangavault.download.JobRequest
 import app.mangavault.download.JobStatus
+import app.mangavault.download.CompressJob
+import app.mangavault.download.CompressRequest
+import app.mangavault.download.CompressService
+import app.mangavault.download.CompressState
+import app.mangavault.download.Compressor
+import app.mangavault.download.FileKind
 import app.mangavault.download.Format
+import app.mangavault.download.Level
 import app.mangavault.download.Mode
 import app.mangavault.source.Chapter
 import app.mangavault.source.Err
@@ -29,7 +36,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 enum class Screen { MAIN, RESULT, PROGRESS }
-enum class Tab { HOME, DOWNLOADS, SETTINGS }
+enum class Tab { HOME, DOWNLOADS, TOOLS, SETTINGS }
+
+/** A file chosen for compression. */
+class PickedFile(val uri: android.net.Uri, val name: String, val size: Long, val kind: FileKind)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     var url by mutableStateOf("")
@@ -71,6 +81,59 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 loading = false
             }
         }
+    }
+
+    // ---------------------------------------------------------------- compression
+
+    var picked by mutableStateOf<PickedFile?>(null)
+    var pickError by mutableStateOf(false)
+    var level by mutableStateOf(Level.BALANCED)
+    var targetMb by mutableStateOf("20")
+
+    fun langNow(): String = Prefs.lang.value
+
+    /** Reads name and size of the chosen document and checks it really is a PDF or a zip (CBZ). */
+    fun onPicked(uri: android.net.Uri) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val f = withContext(Dispatchers.IO) {
+                var name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+                var size = -1L
+                try {
+                    app.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                        if (c.moveToFirst()) {
+                            val n = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            val s = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                            if (n >= 0 && !c.isNull(n)) name = c.getString(n)
+                            if (s >= 0 && !c.isNull(s)) size = c.getLong(s)
+                        }
+                    }
+                } catch (_: Exception) { }
+                if (size < 0) size = try { app.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0 } catch (_: Exception) { 0 }
+                val kind = Compressor.sniff(app, uri)
+                if (kind == null) null else PickedFile(uri, name, size, kind)
+            }
+            pickError = f == null
+            if (f != null) picked = f
+        }
+    }
+
+    /** False when a target size is needed but missing. */
+    fun startCompress(): Boolean {
+        val f = picked ?: return false
+        if (CompressState.job.value?.status == JobStatus.RUNNING) return true
+        val target = if (level == Level.TARGET) (targetMb.toLongOrNull() ?: 0) * 1048576L else 0
+        if (level == Level.TARGET && target <= 0) return false
+        CompressState.pending = CompressRequest(f.uri, f.name, f.size, f.kind, level, target)
+        CompressState.job.value = CompressJob(f.name, JobStatus.RUNNING, f.size)
+        val app = getApplication<Application>()
+        ContextCompat.startForegroundService(app, Intent(app, CompressService::class.java))
+        return true
+    }
+
+    fun cancelCompress() {
+        val app = getApplication<Application>()
+        app.startService(Intent(app, CompressService::class.java).setAction(CompressService.ACTION_CANCEL))
     }
 
     fun pickFormat(f: Format) { format = f; Prefs.setFormat(f.name) }

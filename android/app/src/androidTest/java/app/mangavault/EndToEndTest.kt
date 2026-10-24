@@ -188,6 +188,53 @@ class EndToEndTest {
         }
     }
 
+    /** A detailed, hard-to-compress page: gradient plus noise, saved as maximum-quality JPEG (a typical "huge" scan). */
+    private fun heavyJpeg(seed: Int): ByteArray {
+        val w = 1600
+        val h = 2400
+        val rnd = java.util.Random(seed.toLong())
+        val px = IntArray(w * h) { i -> val y = i / w; val n = rnd.nextInt(60); Color.rgb((y * 255 / h + n) % 256, (i % w * 255 / w + n) % 256, 120 + n) }
+        val b = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        return ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 100, it) }.toByteArray()
+    }
+
+    @Test
+    fun compressesABigPdfWithoutLosingPages() = runBlocking {
+        val src = java.io.File(ctx.cacheDir, "big.pdf")
+        app.mangavault.download.PdfWriter(src.outputStream()).use { pdf ->
+            for (i in 1..6) { val j = heavyJpeg(i); pdf.addJpeg(j, app.mangavault.download.Jpeg.info(j)!!) }
+        }
+        val req = app.mangavault.download.CompressRequest(Uri.fromFile(src), "big.pdf", src.length(), app.mangavault.download.FileKind.PDF,
+            app.mangavault.download.Level.BALANCED, 0)
+        app.mangavault.download.Compressor.run(ctx, req)
+        val j = app.mangavault.download.CompressState.job.value!!
+        assertEquals(j.error, JobStatus.DONE, j.status)
+        assertTrue("no gain", !j.noGain)
+        assertTrue("from ${src.length()} to ${j.outBytes}", j.outBytes * 3 < src.length())
+        ctx.contentResolver.openFileDescriptor(Uri.parse(j.outUri!!), "r")!!.use { fd ->
+            android.graphics.pdf.PdfRenderer(fd).use { r -> assertEquals(6, r.pageCount) }
+        }
+    }
+
+    @Test
+    fun compressesACbzToATargetSizeAndKeepsEveryImage() = runBlocking {
+        val src = java.io.File(ctx.cacheDir, "big.cbz")
+        java.util.zip.ZipOutputStream(src.outputStream()).use { z ->
+            for (i in 1..5) { z.putNextEntry(java.util.zip.ZipEntry("00$i.jpg")); z.write(heavyJpeg(10 + i)); z.closeEntry() }
+            z.putNextEntry(java.util.zip.ZipEntry("ComicInfo.xml")); z.write("<ComicInfo/>".toByteArray()); z.closeEntry()
+        }
+        val target = src.length() / 6
+        val req = app.mangavault.download.CompressRequest(Uri.fromFile(src), "big.cbz", src.length(), app.mangavault.download.FileKind.ZIP,
+            app.mangavault.download.Level.TARGET, target)
+        app.mangavault.download.Compressor.run(ctx, req)
+        val j = app.mangavault.download.CompressState.job.value!!
+        assertEquals(j.error, JobStatus.DONE, j.status)
+        assertTrue("target $target got ${j.outBytes}", j.outBytes < target * 1.3)
+        val names = zipNames(j.outUri!!)
+        assertEquals(5, names.count { it.endsWith(".jpg") })
+        assertTrue(names.contains("ComicInfo.xml"))
+    }
+
     @Test
     fun exportsOneZipWithAFolderPerChapter() = runBlocking {
         val series = Sources.load(server.url("/manga/demo").toString(), "en", false)

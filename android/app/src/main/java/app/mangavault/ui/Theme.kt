@@ -566,5 +566,8 @@ object Ico {
     val Activity = strokeIcon("activity", false, "M22 12h-4l-3 9L9 3l-3 9H2")
     val Languages = strokeIcon("lang", false, "M5 8l6 6", "M4 14l6 -6l2 -3", "M2 5h12", "M7 2h1", "M22 22l-5 -10l-5 10", "M14 18h6")
     val Moon = strokeIcon("moon", false, "M12 3a6 6 0 0 0 9 9a9 9 0 1 1 -9 -9z")
+    val Shrink = strokeIcon("shrink", false, "M15 15l6 6", "M15 19.8V15h4.8", "M9 19.8V15H4.2", "M9 15l-6 6", "M15 4.2V9h4.8", "M15 9l6 -6", "M9 4.2V9H4.2", "M9 9L3 3")
+    val Upload = strokeIcon("upload", false, "M21 15v4a2 2 0 0 1 -2 2H5a2 2 0 0 1 -2 -2v-4", "M17 8l-5 -5l-5 5", "M12 3v12")
+    val Share = strokeIcon("share", false, "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-8", "M16 6l-4 -4l-4 4", "M12 2v13")
     val Database = strokeIcon("db", false, "M21 5c0 1.66 -4 3 -9 3S3 6.66 3 5s4 -3 9 -3s9 1.34 9 3z", "M3 5v14c0 1.66 4 3 9 3s9 -1.34 9 -3V5", "M3 12c0 1.66 4 3 9 3s9 -1.34 9 -3")
 }
