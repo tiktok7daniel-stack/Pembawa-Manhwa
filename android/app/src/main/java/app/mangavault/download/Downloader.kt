@@ -231,12 +231,22 @@ object Downloader {
         Fetched(emptyList(), e)
     }
 
+    /** A page made ready for one output format; [size] is exactly what adding it will cost in the file (plus a small header). */
+    private class Prepared(val size: Long, val data: Any)
+
     /** Writes pages into one output file in a given format. */
     private abstract class Packer {
         /** A new chapter starts (bookmark / folder). */
         abstract fun chapter(title: String)
+        /** Converts a page for this format without writing it; null when the page cannot be used. */
+        abstract fun prepare(name: String, pf: PageFile): Prepared?
+        abstract fun add(p: Prepared)
         /** Returns false when the page could not be used. */
-        abstract fun page(name: String, pf: PageFile): Boolean
+        fun page(name: String, pf: PageFile): Boolean {
+            val p = prepare(name, pf) ?: return false
+            add(p)
+            return true
+        }
         /** Adds trailing metadata and closes the underlying stream. */
         abstract fun close(info: String?)
     }
@@ -244,11 +254,13 @@ object Downloader {
     private class ZipPacker(out: java.io.OutputStream) : Packer() {
         private val zip = ZipOutputStream(out.buffered(256 * 1024)).apply { setLevel(Deflater.NO_COMPRESSION) }
         override fun chapter(title: String) = Unit
-        override fun page(name: String, pf: PageFile): Boolean {
+        // Local header + data descriptor + central directory entry, each carrying the name.
+        override fun prepare(name: String, pf: PageFile) = Prepared(pf.file.length() + 3L * name.length + 140, name to pf)
+        override fun add(p: Prepared) {
+            @Suppress("UNCHECKED_CAST") val (name, pf) = p.data as Pair<String, PageFile>
             zip.putNextEntry(ZipEntry(name))
             pf.file.inputStream().use { it.copyTo(zip, 128 * 1024) }
             zip.closeEntry()
-            return true
         }
         override fun close(info: String?) {
             if (info != null) {
@@ -263,13 +275,15 @@ object Downloader {
     private class PdfPacker(out: java.io.OutputStream) : Packer() {
         private val pdf = PdfWriter(out)
         override fun chapter(title: String) = pdf.bookmark(title)
-        override fun page(name: String, pf: PageFile): Boolean {
+        override fun prepare(name: String, pf: PageFile): Prepared? {
             val bytes = pf.file.readBytes()
             val info = Jpeg.info(bytes)
-            if (info != null) { pdf.addJpeg(bytes, info); return true }
-            val slices = toJpeg(bytes) ?: return false
-            pdf.addStack(slices)
-            return true
+            val slices = if (info != null) listOf(bytes to info) else toJpeg(bytes) ?: return null
+            // Image streams + their dictionaries, the page and content objects, and their xref lines.
+            return Prepared(slices.sumOf { it.first.size.toLong() + 260 } + 420, slices)
+        }
+        override fun add(p: Prepared) {
+            @Suppress("UNCHECKED_CAST") pdf.addStack(p.data as List<Pair<ByteArray, JpegInfo>>)
         }
         override fun close(info: String?) = pdf.close()
 
@@ -338,6 +352,97 @@ object Downloader {
         Format.CBZ -> "application/vnd.comicbook+zip"
     }
 
+    /**
+     * "Split by size": chapters go into the current part until the next one would push it past [limit]; then the part is
+     * closed and saved as "<series> - Ch 100-112.<ext>", and a new part starts. A chapter bigger than the limit on its own
+     * is split across parts at a page boundary. Parts are written to a temp file first because the name (the chapter range)
+     * is only known when the part is complete.
+     */
+    private class Splitter(
+        val ctx: Context, val folder: String, val base: String, val format: Format, val limit: Long, val series: String,
+    ) {
+        private var file: File? = null
+        private var pack: Packer? = null
+        private var bytes = 0L
+        private var firstNo: String? = null
+        private var lastNo: String? = null
+        private val pieces = HashMap<String, Int>()
+        val saved = ArrayList<SavedInfo>()
+
+        private fun open() {
+            val f = File(ctx.cacheDir, "part-${System.nanoTime()}.${format.ext}")
+            file = f
+            pack = packer(format, f.outputStream())
+            bytes = 0
+            firstNo = null
+        }
+
+        private fun close() {
+            val p = pack ?: return
+            val f = file!!
+            p.close(if (format == Format.CBZ) comicInfo(series, null, 0) else null)
+            val a = firstNo ?: "?"
+            val b = lastNo ?: a
+            var range = if (a == b) "Ch $a" else "Ch $a-$b"
+            // The same chapter split over several parts: number the pieces.
+            val n = (pieces[range] ?: 0) + 1
+            pieces[range] = n
+            if (n > 1) range += " ($n)"
+            val t = Storage.open(ctx, folder, "$base - $range.${format.ext}", mime(format))
+            try {
+                f.inputStream().use { it.copyTo(t.stream, 256 * 1024) }
+                t.stream.close()
+                saved.add(t.finish())
+            } catch (e: Exception) {
+                t.abort()
+                throw e
+            } finally {
+                f.delete()
+                pack = null
+                file = null
+            }
+        }
+
+        /** Room kept free in every part for what is written at the end (page tree, bookmarks, xref, zip directory). */
+        private val reserve = 96L * 1024 + limit / 200
+
+        /** Adds one chapter's pages; returns how many went in. No part ever grows past [limit]. */
+        fun chapter(no: String, title: String, pages: List<Pair<String, PageFile>>): Int {
+            if (pack == null) open()
+            // Measure the whole chapter first: if it fits in a fresh part but not in this one, start the fresh part now
+            // so a chapter is only cut when it is bigger than a part on its own.
+            val prepared = pages.mapNotNull { (name, pf) -> pack!!.prepare(name, pf) }
+            val size = prepared.sumOf { it.size } + 200 + 4L * title.length
+            if (bytes > 0 && bytes + size > limit - reserve) { close(); open() }
+            pack!!.chapter(title)
+            bytes += 200 + 4L * title.length
+            if (firstNo == null) firstNo = no
+            lastNo = no
+            for (p in prepared) {
+                if (bytes > 0 && bytes + p.size > limit - reserve) {
+                    // This chapter alone is larger than a part: continue it in the next one.
+                    close()
+                    open()
+                    pack!!.chapter(title)
+                    bytes += 200 + 4L * title.length
+                    firstNo = no
+                    lastNo = no
+                }
+                pack!!.add(p)
+                bytes += p.size
+            }
+            return prepared.size
+        }
+
+        fun finish() { close() }
+
+        fun abort() {
+            try { pack?.close(null) } catch (_: Exception) { }
+            file?.delete()
+            pack = null
+        }
+    }
+
     suspend fun run(ctx: Context, req: JobRequest) {
         val series = req.series
         val selected = req.chapters
@@ -357,6 +462,12 @@ object Downloader {
 
         var singleTarget: OutputTarget? = null
         var single: Packer? = null
+        val numberOf = { ch: Chapter, idx: Int -> ch.number ?: (idx + 1).toString() }
+        val splitter = if (req.mode == Mode.SPLIT) {
+            val a = numberOf(selected.first(), 0)
+            val b = numberOf(selected.last(), selected.size - 1)
+            Splitter(ctx, "$base - " + (if (a == b) "Ch $a" else "Ch $a-$b"), base, format, maxOf(1L shl 20, req.splitBytes), series.title)
+        } else null
         var last: SavedInfo? = null
         var ok = 0
         var files = 0
@@ -381,7 +492,16 @@ object Downloader {
                         val lbl = label(ch, idx, width)
                         val pw = maxOf(3, fetched.pages.size.toString().length)
                         var good = 0
-                        withContext(Dispatchers.IO) {
+                        if (splitter != null) withContext(Dispatchers.IO) {
+                            val items = fetched.pages.mapIndexedNotNull { n, pf ->
+                                if (pf == null) null else {
+                                    val no = (n + 1).toString().padStart(pw, '0')
+                                    (if (format == Format.ZIP) "$lbl/$no.${pf.ext}" else "${lbl.replace(' ', '_')}_p$no.${pf.ext}") to pf
+                                }
+                            }
+                            good = splitter.chapter(numberOf(ch, idx), chapterTitle(ch, lbl), items)
+                            if (good == 0) throw ChapterFailed("pages could not be converted")
+                        } else withContext(Dispatchers.IO) {
                             val pack = single ?: run {
                                 val t = Storage.open(ctx, base, "$base - $lbl.$ext", mime(format))
                                 target = t
@@ -416,7 +536,7 @@ object Downloader {
                     } catch (e: Exception) {
                         target?.abort()
                         // In single-file mode a broken output stream is fatal; a chapter that simply had no usable pages is not.
-                        if (req.mode == Mode.SINGLE && e !is ChapterFailed && e !== fetched.error) throw e
+                        if (req.mode != Mode.PER_CHAPTER && e !is ChapterFailed && e !== fetched.error) throw e
                         DownloadState.chapter(idx) { it.copy(state = CState.FAILED, error = reason(e)) }
                     } finally {
                         withContext(Dispatchers.IO) { File(work, idx.toString()).deleteRecursively() }
@@ -425,6 +545,11 @@ object Downloader {
                 }
             }
             if (ok == 0) throw IOException("None of the selected chapters could be downloaded")
+            if (splitter != null) {
+                withContext(Dispatchers.IO) { splitter.finish() }
+                files = splitter.saved.size
+                last = splitter.saved.lastOrNull()
+            }
             val pack = single
             if (pack != null) {
                 withContext(Dispatchers.IO) {
@@ -436,14 +561,17 @@ object Downloader {
             }
             val saved = last
             val folderPath = saved?.path?.substringBeforeLast('/') ?: ""
-            DownloadState.finish(JobStatus.DONE) { it.copy(savedPath = if (req.mode == Mode.SINGLE) saved?.path else folderPath) }
+            val uris = splitter?.saved?.mapNotNull { it.uri } ?: listOfNotNull(saved?.uri)
+            DownloadState.finish(JobStatus.DONE) { it.copy(savedPath = if (req.mode == Mode.SINGLE) saved?.path else folderPath, files = uris) }
             Prefs.addHistory(HistoryItem(series.title, if (req.mode == Mode.SINGLE) saved?.path ?: folderPath else folderPath, saved?.uri, ok, System.currentTimeMillis(), files))
         } catch (e: CancellationException) {
             singleTarget?.abort()
+            splitter?.abort()
             DownloadState.finish(JobStatus.CANCELLED)
             throw e
         } catch (e: Exception) {
             singleTarget?.abort()
+            splitter?.abort()
             DownloadState.finish(JobStatus.ERROR) { it.copy(error = e.message) }
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { work.deleteRecursively() }

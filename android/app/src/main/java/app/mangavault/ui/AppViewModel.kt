@@ -50,6 +50,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var series by mutableStateOf<Series?>(null)
     var selected by mutableStateOf(setOf<String>())
     var mode by mutableStateOf(Mode.SINGLE)
+    /** Largest file allowed in "split by size" mode, in MB (20 fits a Claude project upload). */
+    var splitMb by mutableStateOf("20")
+    private val splitBytes: Long get() = (splitMb.toLongOrNull() ?: 20L).coerceIn(1, 4000) * 1048576L
     var format by mutableStateOf(Format.values().firstOrNull { it.name == Prefs.format.value } ?: Format.CBZ)
     var screen by mutableStateOf(Screen.MAIN)
     var tab by mutableStateOf(Tab.HOME)
@@ -200,7 +203,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (isRunning) { screen = Screen.PROGRESS; return true }
         val chosen: List<Chapter> = s.chapters.filter { it.id in selected }
         if (chosen.isEmpty()) return false
-        JobHolder.pending = JobRequest(s, chosen, mode, format)
+        JobHolder.pending = JobRequest(s, chosen, mode, format, splitBytes)
         DownloadState.start(s.title, chosen, mode, format)
         val app = getApplication<Application>()
         ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
@@ -215,7 +218,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val j = DownloadState.job.value ?: return
         val again = j.chapters.filter { it.state != CState.DONE }.map { it.chapter }
         val chosen = again.ifEmpty { j.chapters.map { it.chapter } }
-        JobHolder.pending = JobRequest(s, chosen, j.mode, j.format)
+        JobHolder.pending = JobRequest(s, chosen, j.mode, j.format, splitBytes)
         DownloadState.start(s.title, chosen, j.mode, j.format)
         val app = getApplication<Application>()
         ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))

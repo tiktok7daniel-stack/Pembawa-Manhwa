@@ -336,7 +336,18 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
         ) {
             val formats = Format.values().toList()
             Segmented(formats.map { it.name }, formats.indexOf(vm.format), { vm.pickFormat(formats[it]) })
-            Segmented(listOf(t("fmt_single"), t("fmt_zip")), if (vm.mode == Mode.SINGLE) 0 else 1, { vm.mode = if (it == 0) Mode.SINGLE else Mode.PER_CHAPTER })
+            val modes = listOf(Mode.SINGLE, Mode.PER_CHAPTER, Mode.SPLIT)
+            Segmented(listOf(t("fmt_single"), t("fmt_zip"), t("fmt_split")), modes.indexOf(vm.mode), { vm.mode = modes[it] })
+            AnimatedVisibility(vm.mode == Mode.SPLIT, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(t("split_max"), color = LocalPalette.current.muted, fontSize = 12.sp)
+                        listOf("10", "20", "50").forEach { mb -> Chip("$mb MB", { vm.splitMb = mb }, selected = vm.splitMb == mb) }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Muted(t("split_d").replace("{mb}", vm.splitMb), size = 11, maxLines = 2)
+                }
+            }
             PrimaryButton(
                 if (all) "${t("download_all")} · ${s.chapters.size}" else "${t("download")} · ${vm.selected.size}",
                 onDownload, icon = Ico.Download, enabled = vm.selected.isNotEmpty(),

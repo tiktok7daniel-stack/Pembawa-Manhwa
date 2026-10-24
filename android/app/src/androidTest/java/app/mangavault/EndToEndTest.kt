@@ -51,6 +51,12 @@ class EndToEndTest {
     private val throttled = java.util.concurrent.atomic.AtomicInteger()
     private val page = png(400, 600, Color.rgb(120, 90, 200))
     private val strip by lazy { png(320, 9000, Color.rgb(30, 160, 120)) } // long webtoon page
+    private val midJpeg by lazy {
+        val w = 600; val h = 800
+        val rnd = java.util.Random(7)
+        val px = IntArray(w * h) { i -> val n = rnd.nextInt(70); Color.rgb((i / w * 255 / h + n) % 256, (i % w * 255 / w + n) % 256, 90 + n) }
+        ByteArrayOutputStream().also { Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
+    }
     private val logo = png(64, 64, Color.RED)
 
     private fun html(body: String) = MockResponse().setHeader("Content-Type", "text/html")
@@ -73,6 +79,12 @@ class EndToEndTest {
                     val n = it.groupValues[1].toInt()
                     if (n in 1..10) return html("<div class=\"reading-content\">" + (1..4).joinToString("") { p -> "<img src=\"/strip/$n-$p.png\">" } + "</div>")
                 }
+                Regex("^/split/demo/chapter-(\\d+)/$").find(path)?.let {
+                    val n = it.groupValues[1].toInt()
+                    if (n in 1..6) return html("<div class=\"reading-content\">" + (1..3).joinToString("") { p -> "<img src=\"/mid/$n-$p.jpg\">" } + "</div>")
+                }
+                if (path.startsWith("/mid/")) return MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(midJpeg))
+                if (path == "/split/demo") return html((6 downTo 1).joinToString("") { "<a href=\"/split/demo/chapter-$it/\">Chapter $it</a>" })
                 if (path.startsWith("/strip/")) return MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(strip))
                 if (path == "/tall/demo") return html((10 downTo 1).joinToString("") { "<a href=\"/tall/demo/chapter-$it/\">Chapter $it</a>" })
                 if (path.startsWith("/himg/")) {
@@ -252,6 +264,28 @@ class EndToEndTest {
         val names = zipNames(j.outUri!!)
         assertEquals(5, names.count { it.endsWith(".jpg") })
         assertTrue(names.contains("ComicInfo.xml"))
+    }
+
+    @Test
+    fun splitBySizeNeverExceedsTheLimitAndKeepsEveryPage() = runBlocking {
+        val series = Sources.load(server.url("/split/demo").toString(), "en", false)
+        val limit = 1L shl 20 // 1 MB parts, pages of ~${midJpeg.size / 1024} KB
+        Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SPLIT, Format.PDF, limit))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        assertTrue("several parts: ${job.files.size}", job.files.size >= 3)
+        var pages = 0
+        for (u in job.files) {
+            val uri = Uri.parse(u)
+            val size = ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { it.statSize }
+            assertTrue("part $u is $size bytes", size <= limit)
+            ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { fd -> android.graphics.pdf.PdfRenderer(fd).use { r -> pages += r.pageCount } }
+            ctx.contentResolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)!!.use { c ->
+                c.moveToFirst()
+                assertTrue(c.getString(0), Regex("^Demo Series - Ch \\d+(-\\d+)?( \\(\\d+\\))?\\.pdf$").matches(c.getString(0)))
+            }
+        }
+        assertEquals(18, pages) // 6 chapters x 3 pages, spread over the parts, none lost
     }
 
     @Test

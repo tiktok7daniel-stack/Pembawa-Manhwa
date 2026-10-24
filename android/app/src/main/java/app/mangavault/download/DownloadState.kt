@@ -6,7 +6,8 @@ import app.mangavault.source.Series
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class Mode { SINGLE, PER_CHAPTER }
+/** SINGLE: one file · PER_CHAPTER: one file per chapter · SPLIT: files of at most [JobRequest.splitBytes]. */
+enum class Mode { SINGLE, PER_CHAPTER, SPLIT }
 
 /** Output file type. */
 enum class Format(val ext: String) { CBZ("cbz"), PDF("pdf"), ZIP("zip") }
@@ -36,6 +37,8 @@ data class JobState(
     val startedAt: Long = 0,
     val finishedAt: Long = 0,
     val format: Format = Format.CBZ,
+    /** Every file written (content URIs), e.g. all parts of a split download. */
+    val files: List<String> = emptyList(),
 ) {
     /** 0..1 across all chapters; several chapters can be in flight at once. */
     val fraction: Float
@@ -56,7 +59,7 @@ data class JobState(
     val percent: Int get() = if (status == JobStatus.DONE) 100 else (fraction * 100).toInt()
 }
 
-class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode, val format: Format = Format.CBZ)
+class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode, val format: Format = Format.CBZ, val splitBytes: Long = 10L shl 20)
 
 /** Hands the (large) job request from the UI to the foreground service. */
 object JobHolder {
