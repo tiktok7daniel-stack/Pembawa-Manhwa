@@ -256,8 +256,9 @@ object Downloader {
         override fun chapter(title: String) = Unit
         // Local header + data descriptor + central directory entry, each carrying the name.
         override fun prepare(name: String, pf: PageFile) = Prepared(pf.file.length() + 3L * name.length + 140, name to pf)
+        @Suppress("UNCHECKED_CAST")
         override fun add(p: Prepared) {
-            @Suppress("UNCHECKED_CAST") val (name, pf) = p.data as Pair<String, PageFile>
+            val (name, pf) = p.data as Pair<String, PageFile>
             zip.putNextEntry(ZipEntry(name))
             pf.file.inputStream().use { it.copyTo(zip, 128 * 1024) }
             zip.closeEntry()
@@ -282,8 +283,9 @@ object Downloader {
             // Image streams + their dictionaries, the page and content objects, and their xref lines.
             return Prepared(slices.sumOf { it.first.size.toLong() + 260 } + 420, slices)
         }
+        @Suppress("UNCHECKED_CAST")
         override fun add(p: Prepared) {
-            @Suppress("UNCHECKED_CAST") pdf.addStack(p.data as List<Pair<ByteArray, JpegInfo>>)
+            pdf.addStack(p.data as List<Pair<ByteArray, JpegInfo>>)
         }
         override fun close(info: String?) = pdf.close()
 
