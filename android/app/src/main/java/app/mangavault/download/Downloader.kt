@@ -469,11 +469,21 @@ object Downloader {
         var singleTarget: OutputTarget? = null
         var single: Packer? = null
         val numberOf = { ch: Chapter, idx: Int -> ch.number ?: (idx + 1).toString() }
-        val splitter = if (req.mode == Mode.SPLIT) {
-            val a = numberOf(selected.first(), 0)
-            val b = numberOf(selected.last(), selected.size - 1)
-            Splitter(ctx, "$base - " + (if (a == b) "Ch $a" else "Ch $a-$b"), base, format, maxOf(1L shl 20, req.splitBytes), series.title)
-        } else null
+        // Auto mode: every [JobRequest.batchSize] chapters get their own folder ("<series>/Ch 100-199"), finished and
+        // published as soon as that batch is done; without batches the whole selection is one folder.
+        val batch = if (req.batchSize > 0) req.batchSize else selected.size
+        fun makeSplitter(b: Int): Splitter {
+            val from = b * batch
+            val to = minOf(selected.size, from + batch) - 1
+            val a = numberOf(selected[from], from)
+            val z = numberOf(selected[to], to)
+            val range = if (a == z) "Ch $a" else "Ch $a-$z"
+            val folder = if (req.batchSize > 0) "$base/$range" else "$base - $range"
+            return Splitter(ctx, folder, base, format, maxOf(1L shl 20, req.splitBytes), series.title)
+        }
+        var splitter: Splitter? = if (req.mode == Mode.SPLIT) makeSplitter(0) else null
+        var splitBatch = 0
+        val splitSaved = ArrayList<SavedInfo>()
         var last: SavedInfo? = null
         var ok = 0
         var files = 0
@@ -489,6 +499,14 @@ object Downloader {
                     async { chapterGate.withPermit { fetchChapter(idx, ch, series, File(work, idx.toString()), referer, headers, pageGate) } }
                 }
                 for ((idx, ch) in selected.withIndex()) {
+                    val current = splitter
+                    if (current != null && idx / batch != splitBatch) {
+                        // Previous folder is complete: publish its last file now, then start the next folder.
+                        withContext(Dispatchers.IO) { current.finish() }
+                        splitSaved.addAll(current.saved)
+                        splitBatch = idx / batch
+                        splitter = makeSplitter(splitBatch)
+                    }
                     val fetched = fetches[idx].await()
                     currentCoroutineContext().ensureActive()
                     var target: OutputTarget? = null
@@ -498,14 +516,15 @@ object Downloader {
                         val lbl = label(ch, idx, width)
                         val pw = maxOf(3, fetched.pages.size.toString().length)
                         var good = 0
-                        if (splitter != null) withContext(Dispatchers.IO) {
+                        val sp = splitter
+                        if (sp != null) withContext(Dispatchers.IO) {
                             val items = fetched.pages.mapIndexedNotNull { n, pf ->
                                 if (pf == null) null else {
                                     val no = (n + 1).toString().padStart(pw, '0')
                                     (if (format == Format.ZIP) "$lbl/$no.${pf.ext}" else "${lbl.replace(' ', '_')}_p$no.${pf.ext}") to pf
                                 }
                             }
-                            good = splitter.chapter(numberOf(ch, idx), chapterTitle(ch, lbl), items)
+                            good = sp.chapter(numberOf(ch, idx), chapterTitle(ch, lbl), items)
                             if (good == 0) throw ChapterFailed("pages could not be converted")
                         } else withContext(Dispatchers.IO) {
                             val pack = single ?: run {
@@ -551,10 +570,12 @@ object Downloader {
                 }
             }
             if (ok == 0) throw IOException("None of the selected chapters could be downloaded")
-            if (splitter != null) {
-                withContext(Dispatchers.IO) { splitter.finish() }
-                files = splitter.saved.size
-                last = splitter.saved.lastOrNull()
+            val lastSplitter = splitter
+            if (lastSplitter != null) {
+                withContext(Dispatchers.IO) { lastSplitter.finish() }
+                splitSaved.addAll(lastSplitter.saved)
+                files = splitSaved.size
+                last = splitSaved.lastOrNull()
             }
             val pack = single
             if (pack != null) {
@@ -566,8 +587,9 @@ object Downloader {
                 singleTarget = null
             }
             val saved = last
-            val folderPath = saved?.path?.substringBeforeLast('/') ?: ""
-            val uris = splitter?.saved?.mapNotNull { it.uri } ?: listOfNotNull(saved?.uri)
+            var folderPath = saved?.path?.substringBeforeLast('/') ?: ""
+            if (req.mode == Mode.SPLIT && req.batchSize > 0) folderPath = folderPath.substringBeforeLast('/') // the series folder holding all batches
+            val uris = if (req.mode == Mode.SPLIT) splitSaved.mapNotNull { it.uri } else listOfNotNull(saved?.uri)
             DownloadState.finish(JobStatus.DONE) { it.copy(savedPath = if (req.mode == Mode.SINGLE) saved?.path else folderPath, files = uris) }
             Prefs.addHistory(HistoryItem(series.title, if (req.mode == Mode.SINGLE) saved?.path ?: folderPath else folderPath, saved?.uri, ok, System.currentTimeMillis(), files))
         } catch (e: CancellationException) {

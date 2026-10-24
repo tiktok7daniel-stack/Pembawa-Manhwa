@@ -289,6 +289,27 @@ class EndToEndTest {
     }
 
     @Test
+    fun autoBatchesMakeOneFolderPerRangeWithSmallFiles() = runBlocking {
+        val series = Sources.load(server.url("/split/demo").toString(), "en", false)
+        val limit = 1L shl 20
+        Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SPLIT, Format.PDF, limit, batchSize = 2))
+        val job = DownloadState.job.value!!
+        assertEquals(job.error, JobStatus.DONE, job.status)
+        val folders = LinkedHashSet<String>()
+        var pages = 0
+        for (u in job.files) {
+            val uri = Uri.parse(u)
+            ctx.contentResolver.query(uri, arrayOf(android.provider.MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)!!.use { c ->
+                c.moveToFirst(); folders.add(c.getString(0).trimEnd('/').substringAfterLast("MangaVault/"))
+            }
+            assertTrue(ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { it.statSize } <= limit)
+            ctx.contentResolver.openFileDescriptor(uri, "r")!!.use { fd -> android.graphics.pdf.PdfRenderer(fd).use { r -> pages += r.pageCount } }
+        }
+        assertEquals(listOf("Demo Series/Ch 1-2", "Demo Series/Ch 3-4", "Demo Series/Ch 5-6"), folders.toList())
+        assertEquals(18, pages)
+    }
+
+    @Test
     fun exportsOneZipWithAFolderPerChapter() = runBlocking {
         val series = Sources.load(server.url("/manga/demo").toString(), "en", false)
         Downloader.run(ctx, JobRequest(series, series.chapters, Mode.SINGLE, Format.ZIP))

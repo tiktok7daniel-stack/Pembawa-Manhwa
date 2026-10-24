@@ -59,7 +59,9 @@ data class JobState(
     val percent: Int get() = if (status == JobStatus.DONE) 100 else (fraction * 100).toInt()
 }
 
-class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode, val format: Format = Format.CBZ, val splitBytes: Long = 10L shl 20)
+class JobRequest(val series: Series, val chapters: List<Chapter>, val mode: Mode, val format: Format = Format.CBZ, val splitBytes: Long = 10L shl 20,
+    /** Auto mode: chapters per folder (0 = one folder for everything). */
+    val batchSize: Int = 0)
 
 /** Hands the (large) job request from the UI to the foreground service. */
 object JobHolder {

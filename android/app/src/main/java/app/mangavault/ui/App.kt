@@ -65,9 +65,10 @@ fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit, onPickFile: () -> Un
         MangaVaultTheme(dark) {
             Box(Modifier.fillMaxSize()) {
                 Backdrop()
-                BackHandler(enabled = vm.loading || vm.showVerify || vm.screen != Screen.MAIN || vm.tab != Tab.HOME) {
+                BackHandler(enabled = vm.loading || vm.showVerify || vm.showAuto || vm.screen != Screen.MAIN || vm.tab != Tab.HOME) {
                     when {
                         vm.showVerify -> vm.showVerify = false
+                        vm.showAuto -> vm.showAuto = false
                         vm.loading -> vm.cancelParse()
                         vm.screen != Screen.MAIN -> vm.back()
                         else -> vm.tab = Tab.HOME
@@ -100,6 +101,10 @@ fun MangaVaultApp(vm: AppViewModel, onDownload: () -> Unit, onPickFile: () -> Un
 
                 AnimatedVisibility(vm.loading, enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { it / 3 }, exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { it / 3 }) {
                     FindingSheet(vm.url) { vm.cancelParse() }
+                }
+                AnimatedVisibility(vm.showAuto && vm.screen == Screen.RESULT, enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { it / 3 },
+                    exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { it / 3 }) {
+                    AutoSheet(vm, onDownload)
                 }
                 val verify = vm.verifyUrl
                 AnimatedVisibility(vm.showVerify && verify != null, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut() + slideOutVertically { it / 2 }) {

@@ -203,11 +203,57 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (isRunning) { screen = Screen.PROGRESS; return true }
         val chosen: List<Chapter> = s.chapters.filter { it.id in selected }
         if (chosen.isEmpty()) return false
-        JobHolder.pending = JobRequest(s, chosen, mode, format, splitBytes)
+        JobHolder.pending = JobRequest(s, chosen, mode, format, splitBytes, if (mode == Mode.SPLIT) batchChapters else 0)
         DownloadState.start(s.title, chosen, mode, format)
         val app = getApplication<Application>()
         ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
         screen = Screen.PROGRESS
+        return true
+    }
+
+    // ---------------------------------------------------------------- auto batches
+
+    var showAuto by mutableStateOf(false)
+    var autoFrom by mutableStateOf("")
+    /** Blank = until the last chapter. */
+    var autoTo by mutableStateOf("")
+    var autoBatch by mutableStateOf("100")
+    /** Chapters per folder for the next split download (set by Auto, cleared when the packaging is changed by hand). */
+    var batchChapters = 0
+
+    fun openAuto() {
+        val s = series ?: return
+        if (autoFrom.isBlank()) autoFrom = s.chapters.firstOrNull()?.number ?: "1"
+        if (format == Format.CBZ && Prefs.format.value == "CBZ") format = Format.PDF
+        showAuto = true
+    }
+
+    private val autoSize: Int get() = (autoBatch.toIntOrNull() ?: 100).coerceIn(1, 5000)
+
+    /** The chapters Auto will take, in reading order. */
+    fun autoChapters(): List<Chapter> {
+        val s = series ?: return emptyList()
+        val from = autoFrom.trim().toDoubleOrNull()
+        val to = autoTo.trim().toDoubleOrNull()
+        return s.chapters.filterIndexed { i, c ->
+            val n = c.number?.toDoubleOrNull() ?: (i + 1).toDouble()
+            (from == null || n >= from) && (to == null || n <= to)
+        }
+    }
+
+    /** First and last chapter number of each folder Auto will create. */
+    fun autoPlan(): List<Pair<String, String>> = autoChapters().chunked(autoSize).map { b ->
+        (b.first().number ?: "?") to (b.last().number ?: "?")
+    }
+
+    /** Prepares the selection and packaging for an automatic run; false when the range is empty. */
+    fun applyAuto(): Boolean {
+        val list = autoChapters()
+        if (list.isEmpty()) return false
+        selected = list.map { it.id }.toSet()
+        mode = Mode.SPLIT
+        batchChapters = autoSize
+        showAuto = false
         return true
     }
 

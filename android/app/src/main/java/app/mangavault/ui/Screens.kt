@@ -44,6 +44,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -337,7 +339,7 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
             val formats = Format.values().toList()
             Segmented(formats.map { it.name }, formats.indexOf(vm.format), { vm.pickFormat(formats[it]) })
             val modes = listOf(Mode.SINGLE, Mode.PER_CHAPTER, Mode.SPLIT)
-            Segmented(listOf(t("fmt_single"), t("fmt_zip"), t("fmt_split")), modes.indexOf(vm.mode), { vm.mode = modes[it] })
+            Segmented(listOf(t("fmt_single"), t("fmt_zip"), t("fmt_split")), modes.indexOf(vm.mode), { vm.mode = modes[it]; vm.batchChapters = 0 })
             AnimatedVisibility(vm.mode == Mode.SPLIT, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -348,10 +350,13 @@ fun ResultScreen(vm: AppViewModel, onDownload: () -> Unit) {
                     Muted(t("split_d").replace("{mb}", vm.splitMb), size = 11, maxLines = 2)
                 }
             }
-            PrimaryButton(
-                if (all) "${t("download_all")} · ${s.chapters.size}" else "${t("download")} · ${vm.selected.size}",
-                onDownload, icon = Ico.Download, enabled = vm.selected.isNotEmpty(),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                GhostButton(t("auto"), { vm.openAuto() }, Modifier.width(118.dp).height(58.dp), Ico.Zap, Mana)
+                PrimaryButton(
+                    if (all) "${t("download_all")} · ${s.chapters.size}" else "${t("download")} · ${vm.selected.size}",
+                    onDownload, Modifier.weight(1f), icon = Ico.Download, enabled = vm.selected.isNotEmpty(),
+                )
+            }
         }
     }
 }
@@ -906,6 +911,71 @@ private fun SheetFrame(tag: String, title: String, onClose: () -> Unit, fill: Bo
                 Spacer(Modifier.height(14.dp))
                 content()
             }
+        }
+    }
+}
+
+// ================================================================ Auto
+
+/** Automatic batches: a chapter range cut into folders of N chapters, each holding files under the size limit. */
+@Composable
+fun AutoSheet(vm: AppViewModel, onStart: () -> Unit) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    val plan = vm.autoPlan()
+    val count = vm.autoChapters().size
+    SheetFrame(t("auto_tag"), t("auto_t"), { vm.showAuto = false }) {
+        Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Muted(t("auto_d"), size = 13)
+            SectionLabel(t("auto_range"))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val box = Modifier.weight(1f).height(48.dp).clip(PanelShape).background(p.surface).border(1.dp, p.line, PanelShape).padding(horizontal = 12.dp)
+                Box(box, contentAlignment = Alignment.CenterStart) { InlineField(vm.autoFrom, { vm.autoFrom = it }, t("from"), Modifier.fillMaxWidth(), KeyboardType.Decimal) }
+                Icon(Ico.ArrowRight, null, tint = p.muted, modifier = Modifier.size(16.dp))
+                Box(box, contentAlignment = Alignment.CenterStart) { InlineField(vm.autoTo, { vm.autoTo = it }, t("auto_last"), Modifier.fillMaxWidth(), KeyboardType.Decimal) }
+            }
+            Chip(t("auto_until_end"), { vm.autoTo = "" }, selected = vm.autoTo.isBlank(), icon = Ico.Check)
+            SectionLabel(t("auto_per_folder"))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf("50", "100", "200").forEach { n -> Chip(n, { vm.autoBatch = n }, selected = vm.autoBatch == n) }
+                Box(Modifier.width(84.dp).height(38.dp).clip(SmallBlade).background(p.surface).border(1.dp, p.line, SmallBlade).padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.CenterStart) {
+                    InlineField(vm.autoBatch, { v -> vm.autoBatch = v.filter { it.isDigit() }.take(4) }, "N", Modifier.fillMaxWidth(), KeyboardType.Number)
+                }
+            }
+            SectionLabel(t("auto_max"))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("10", "15", "20").forEach { mb -> Chip("$mb MB", { vm.splitMb = mb }, selected = vm.splitMb == mb) }
+            }
+            SectionLabel(t("format"))
+            val formats = Format.values().toList()
+            Segmented(formats.map { it.name }, formats.indexOf(vm.format), { vm.pickFormat(formats[it]) })
+            // Exactly what will be created, before anything starts.
+            Column(Modifier.fillMaxWidth().panel(accent = if (plan.isEmpty()) Danger else Mana).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (plan.isEmpty()) {
+                    Text(t("auto_empty"), color = Danger, fontSize = 13.sp)
+                } else {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("${plan.size}", color = Mana, fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 30.sp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(t("auto_folders").uppercase() + " · $count " + t("chapters"), Modifier.padding(bottom = 4.dp), color = p.muted,
+                            fontFamily = display(), fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.2.sp)
+                    }
+                    plan.take(6).forEach { (a, b) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Ico.Folder, null, tint = Mana, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (a == b) "Ch $a" else "Ch $a-$b", fontFamily = Rajdhani, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Muted("· ≤ ${vm.splitMb} MB / ${vm.format.ext.uppercase()}", size = 12)
+                        }
+                    }
+                    if (plan.size > 6) Muted("+ ${plan.size - 6} ${t("auto_more")}", size = 12)
+                }
+            }
+            PrimaryButton(t("auto_go"), {
+                if (vm.applyAuto()) onStart() else Toast.makeText(ctx, Strings.get(vm.langNow(), "auto_empty"), Toast.LENGTH_SHORT).show()
+            }, icon = Ico.Zap, enabled = plan.isNotEmpty())
         }
     }
 }
