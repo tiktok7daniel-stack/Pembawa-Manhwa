@@ -237,7 +237,7 @@ object GenericSource {
         val result = found ?: throw SourceException(Err.NO_CHAPTERS)
         if (result.list.isEmpty()) throw SourceException(Err.NO_CHAPTERS)
         return Series(result.title, result.description, result.cover, finish(result.list), sourceName = host(url),
-            session = session, forceBrowser = browser || rendered)
+            session = session, forceBrowser = browser)
     }
 
     private fun pageImages(html: String, url: String): List<String> {
@@ -284,7 +284,10 @@ object GenericSource {
         val r = BrowserRenderer.render(chapter.url, scroll = true)
         val urls = LinkedHashSet<String>()
         for (i in r.images) {
-            if (i.src.isBlank() || i.skip || i.w < 300 || i.h < 200 || !i.src.startsWith("http")) continue
+            if (i.src.isBlank() || i.skip || !i.src.startsWith("http") || badImg.containsMatchIn(i.src)) continue
+            val loaded = i.w > 0 && i.h > 0
+            // Loaded images must be page-sized; lazy ones that never loaded count only inside an image strip.
+            if (if (loaded) i.w < 300 || i.h < 200 else !i.grouped) continue
             urls.add(i.src)
         }
         if (urls.isEmpty()) urls.addAll(pageImages(r.html, r.url))

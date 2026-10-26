@@ -35,6 +35,7 @@ object Http {
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(MemoryCookies)
+        .connectionPool(okhttp3.ConnectionPool(32, 5, TimeUnit.MINUTES))
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(40, TimeUnit.SECONDS)
         .followRedirects(true)

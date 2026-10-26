@@ -16,16 +16,20 @@ object Prefs {
     private val _theme = MutableStateFlow("dark")
     private val _browser = MutableStateFlow(false)
     private val _history = MutableStateFlow<List<HistoryItem>>(emptyList())
+    private val _parallel = MutableStateFlow(3)
     val lang: StateFlow<String> = _lang
     val theme: StateFlow<String> = _theme
     val browserDefault: StateFlow<Boolean> = _browser
     val history: StateFlow<List<HistoryItem>> = _history
+    /** How many chapters download at the same time. */
+    val parallel: StateFlow<Int> = _parallel
 
     fun init(c: Context) {
         sp = c.getSharedPreferences("mangavault", Context.MODE_PRIVATE)
         _lang.value = sp.getString("lang", null) ?: if (Locale.getDefault().language == "ar") "ar" else "en"
         _theme.value = sp.getString("theme", "dark") ?: "dark"
         _browser.value = sp.getBoolean("browser", false)
+        _parallel.value = sp.getInt("parallel", 3).coerceIn(1, 6)
         _history.value = try {
             val arr = JSONArray(sp.getString("history", "[]"))
             (0 until arr.length()).map {
@@ -38,6 +42,7 @@ object Prefs {
     fun setLang(v: String) { _lang.value = v; sp.edit().putString("lang", v).apply() }
     fun setTheme(v: String) { _theme.value = v; sp.edit().putString("theme", v).apply() }
     fun setBrowser(v: Boolean) { _browser.value = v; sp.edit().putBoolean("browser", v).apply() }
+    fun setParallel(v: Int) { _parallel.value = v; sp.edit().putInt("parallel", v).apply() }
 
     fun addHistory(item: HistoryItem) {
         val list = (listOf(item) + _history.value).take(50)

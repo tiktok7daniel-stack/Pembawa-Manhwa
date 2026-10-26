@@ -29,7 +29,7 @@ object BrowserHost {
 /** Same UA as the hidden renderer, so a clearance cookie earned in the visible browser stays valid. */
 const val BROWSER_UA = Http.UA
 
-class RenderedImage(val src: String, val w: Int, val h: Int, val skip: Boolean)
+class RenderedImage(val src: String, val w: Int, val h: Int, val skip: Boolean, val grouped: Boolean = false)
 class RenderResult(val html: String, val url: String, val images: List<RenderedImage>, val cookie: String, val snapshots: List<String> = emptyList())
 
 /** Loads a page in Android's built-in browser engine, scrolls it so lazy images load, and returns what was rendered. */
@@ -51,10 +51,14 @@ object BrowserRenderer {
         ".filter(function(e){return /^\\s*\\d+\\s*[-\u2013~]\\s*\\d+\\s*$/.test(e.textContent||'')&&e.children.length===0;});" +
         "var e=els[i];if(!e)return 'n';if(e.tagName==='OPTION'){var s=e.parentElement;s.value=e.value;s.dispatchEvent(new Event('change',{bubbles:true}));}else{e.click();}return 'y';})"
     private const val JS_HTML = "document.documentElement.outerHTML"
-    private const val JS_SCROLL = "(function(){window.scrollBy(0,Math.max(600,innerHeight*0.9));return String(document.documentElement.scrollHeight);})()"
+    private const val JS_SCROLL = "(function(){window.scrollBy(0,innerHeight*3);return String(document.documentElement.scrollHeight);})()"
     private const val JS_BOTTOM = "(function(){return String(innerHeight+scrollY>=document.documentElement.scrollHeight-4);})()"
-    private const val JS_IMAGES = "JSON.stringify([].slice.call(document.images).map(function(i){return {s:i.currentSrc||i.src||i.getAttribute('data-src')||''," +
-        "w:i.naturalWidth,h:i.naturalHeight,k:!!i.closest('header,footer,nav,aside,.sidebar,.related,.recommend,.comments,#comments,.ads,[class*=advert]')};}))"
+    // Image list including lazy ones that never loaded: "g" marks images grouped with other images (a reader strip).
+    private const val JS_IMAGES = "JSON.stringify([].slice.call(document.images).map(function(i){" +
+        "var lazy=i.getAttribute('data-src')||i.getAttribute('data-lazy-src')||i.getAttribute('data-original')||'';" +
+        "var s=i.currentSrc||i.src||'';if(!s||s.indexOf('data:')===0)s=lazy;var g=false,p=i.parentElement;" +
+        "for(var d=0;d<4&&p;d++,p=p.parentElement){if(p.querySelectorAll('img').length>=3){g=true;break;}}" +
+        "return {s:s,w:i.naturalWidth,h:i.naturalHeight,g:g,k:!!i.closest('header,footer,nav,aside,.sidebar,.related,.recommend,.comments,#comments,.ads,[class*=advert]')};}))"
 
     suspend fun render(url: String, expand: Boolean = false, scroll: Boolean = true, paginate: Boolean = false): RenderResult = mutex.withLock {
         val host = BrowserHost.container ?: throw SourceException(Err.BROWSER)
@@ -101,15 +105,18 @@ object BrowserRenderer {
                 }
             }
             if (scroll) {
+                // Big jumps with short pauses: enough for lazy loaders to start, without crawling the page.
                 var last = ""
-                for (i in 0 until 80) {
+                var stable = 0
+                for (i in 0 until 40) {
                     val h = web.js(JS_SCROLL) ?: ""
-                    delay(250)
+                    delay(140)
                     val bottom = web.js(JS_BOTTOM) == "true"
-                    if (bottom && h == last) break
+                    stable = if (bottom && h == last) stable + 1 else 0
+                    if (stable >= 2) break
                     last = h
                 }
-                delay(800)
+                delay(400)
             }
             // Chapter lists split into pages or "1-100" tabs: open each one and keep a copy of what it shows.
             val snapshots = ArrayList<String>()
@@ -135,7 +142,7 @@ object BrowserRenderer {
             val arr = JSONArray(web.js(JS_IMAGES) ?: "[]")
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                images.add(RenderedImage(o.optString("s"), o.optInt("w"), o.optInt("h"), o.optBoolean("k")))
+                images.add(RenderedImage(o.optString("s"), o.optInt("w"), o.optInt("h"), o.optBoolean("k"), o.optBoolean("g")))
             }
             val html = web.js("document.documentElement.outerHTML") ?: ""
             val finalUrl = web.url ?: url
